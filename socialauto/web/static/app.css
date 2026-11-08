@@ -522,3 +522,6 @@ code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px
 .setup-form .field input { width: 100%; }
 @media (max-width: 720px) { .sf-grid { grid-template-columns: minmax(0, 1fr); } .setup-steps .sl { font-size: 10px; } .setup-steps .si { width: 36px; height: 36px; } }
 @media (max-width: 900px) { .bottom-nav { grid-template-columns: repeat(7, minmax(0, 1fr)); } .bottom-nav a { font-size: 9px; } }
+.setup-nav .controls { margin-left: auto; }
+.setup-form .err:empty { display: none; }
+@media (max-width: 720px) { body { background-attachment: scroll; } .setup-steps .sl { white-space: nowrap; font-size: 9.5px; letter-spacing: -.1px; } }

@@ -392,7 +392,7 @@ function brand() {
   const mark = h("div", { class: "brand-mark" });
   const svg = s("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "#1a1505", "stroke-width": "2.6", "stroke-linecap": "round", "stroke-linejoin": "round" });
   svg.append(s("path", { d: "M4 17 L10 11 L14 14 L20 7" })); mark.append(svg);
-  return h("div", { class: "brand" }, mark, h("div", {}, "Social Automation", h("small", { text: "YouTube + Instagram" })));
+  return h("div", { class: "brand" }, mark, h("div", {}, "Social Automation", h("small", { text: "Reels → Buffer qoralamalari" })));
 }
 function shell(active, title, sub, controls, body) {
   const nav = (cls) => h("nav", { class: cls, "aria-label": "Bo'limlar" },
@@ -946,13 +946,14 @@ async function renderSetup(firstRun) {
       return form;
     }
     const v = state.values;
-    const rows = [["Sayt paroli", v.DASHBOARD_PASSWORD.set], ["Telegram bot", v.TELEGRAM_BOT_TOKEN.set && v.TELEGRAM_ALLOWED_USER_IDS.set], ["Buffer", v.BUFFER_API_KEY.set],
-      ["Claude", state.claude.installed && state.claude.logged_in], ["Nutq modeli", state.model.ready]];
+    const rows = [["Sayt paroli", v.DASHBOARD_PASSWORD.set, "o'rnatilgan"], ["Telegram bot", v.TELEGRAM_BOT_TOKEN.set && v.TELEGRAM_ALLOWED_USER_IDS.set, "kiritilgan"],
+      ["Buffer", v.BUFFER_API_KEY.set, "kiritilgan"], ["Claude", state.claude.installed && state.claude.logged_in, "tayyor"], ["Nutq modeli", state.model.ready, "tayyor"]];
     const start = h("button", { class: "btn primary", type: "button" }, firstRun ? "Boshlash" : "Saytga qaytish");
     start.addEventListener("click", () => { location.href = "/#/"; });
     return h("div", { class: "setup-form" }, h("h2", { text: firstRun ? "6. Tayyor!" : "Holat" }),
-      h("p", { class: "hint", text: "Sinov rejimi yoqiq: Buffer qoralamalari haqiqatda yaratilmaydi, faqat yozib qo'yiladi. Bot hech qachon o'zi joylamaydi — qoralama tayyor bo'lgach, tasdiqlab rejalashtirish sizda. O'zgarishlar saqlangach bot o'zi qayta ishga tushadi." }),
-      h("ul", { class: "checks" }, rows.map(([l, ok]) => h("li", { class: ok ? "ok" : "bad" }, h("span", { class: "mark", text: ok ? "✓" : "!" }), h("div", {}, h("b", { text: l }), h("span", { text: ok ? " — tayyor" : " — hali sozlanmagan (keyinroq «Sozlamalar»da)" }))))),
+      h("p", { class: "hint", text: (state.dry_run ? "Sinov rejimi yoqiq: Buffer qoralamalari haqiqatda yaratilmaydi, faqat yozib qo'yiladi. " : "Buffer qoralamalari haqiqatda yaratiladi. ")
+        + "Bot hech qachon o'zi joylamaydi — qoralama tayyor bo'lgach, tasdiqlab rejalashtirish sizda. O'zgarishlar saqlangach bot o'zi qayta ishga tushadi va Telegram'da sizga yozadi." }),
+      h("ul", { class: "checks" }, rows.map(([l, ok, word]) => h("li", { class: ok ? "ok" : "bad" }, h("span", { class: "mark", text: ok ? "✓" : "!" }), h("div", {}, h("b", { text: l }), h("span", { text: ok ? ` — ${word}` : " — hali sozlanmagan (keyinroq «Sozlamalar»da)" }))))),
       h("div", { class: "setup-nav" }, h("span"), start));
   }
   const page = h("div", { class: "setup-page" }, h("div", { class: "setup-head" }, brand(), themeButton()),
