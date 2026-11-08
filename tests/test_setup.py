@@ -103,3 +103,12 @@ def test_validate_and_mask_units():
     assert SetupChecks.validate("META_APP_ID", "12a") == "bad_app_id"
     assert env_store.mask("abcdefghij") == "ab••••••ij" and env_store.mask("abc") == "••••••"
     assert SetupChecks(None).telegram("bad")["reason"] == "bad_token"     # never leaves the computer when malformed
+
+
+def test_reset_env_returns_to_first_run(fresh):
+    s, local, _, _ = fresh
+    local.post("/api/setup/password", json={"password": "uzun-parol-1"})
+    assert local.get("/api/session").json()["configured"] is True
+    (s.root / ".env").write_text("DASHBOARD_PASSWORD=\n")              # the user cleared it by hand
+    assert local.get("/api/session").json()["configured"] is False
+    assert local.get("/", follow_redirects=False).headers["location"] == "/setup"

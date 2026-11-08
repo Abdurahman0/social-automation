@@ -97,7 +97,12 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
     def password() -> str:
         """The dashboard password, read fresh from .env (the Setup page may have just set it)."""
         from .. import env_store
-        return env_store.read(env_path).get("DASHBOARD_PASSWORD") or settings.dashboard_password
+        # .env is the source of truth (read fresh); a real environment variable is the only other place.
+        # The value loaded at startup is NOT used: it would outlive a cleared or reset .env.
+        import os
+        if env_path.exists() or not settings.dashboard_password:
+            return env_store.read(env_path).get("DASHBOARD_PASSWORD") or os.environ.get("DASHBOARD_PASSWORD", "")
+        return settings.dashboard_password            # tests / setups without a .env file
 
     def is_local(request: Request) -> bool:
         """This computer itself, not a request relayed by a proxy or tunnel (those come from 127.0.0.1 too)."""
@@ -380,8 +385,8 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
     def setup_state(request: Request) -> dict:
         setup_guard(request)
         values = env_store.read(env_path)
-        if not values.get("DASHBOARD_PASSWORD") and settings.dashboard_password:
-            values["DASHBOARD_PASSWORD"] = settings.dashboard_password
+        if not values.get("DASHBOARD_PASSWORD") and password():
+            values["DASHBOARD_PASSWORD"] = password()
         return {"configured": bool(password()), "values": env_store.public_view(values),
                 "dry_run": settings.dry_run, "model": checks.model(), "claude": checks.claude()}
 
