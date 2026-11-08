@@ -56,23 +56,28 @@ def wait_for_token(load: Callable[[], object], stop: threading.Event | None = No
 
 
 class EnvWatcher:
-    """Calls `on_change` once when `.env` content changes."""
+    """Calls `on_change` once when `.env` (or another watched file, e.g. data/restart_request written by the
+    updater) changes."""
 
-    def __init__(self, path: Path, on_change: Callable[[], None], every: float = 3.0):
+    def __init__(self, path: Path, on_change: Callable[[], None], every: float = 3.0, also: tuple[Path, ...] = ()):
+        self.paths = (path, *also)
         self.path, self.on_change, self.every = path, on_change, every
-        self.start_print = env_fingerprint(path)
+        self.start_print = self.fingerprint()
         self.stop = threading.Event()
         self.changed = False
         self.thread = threading.Thread(target=self._loop, name="env-watcher", daemon=True)
+
+    def fingerprint(self) -> str:
+        return "|".join(env_fingerprint(p) for p in self.paths)
 
     def start(self) -> "EnvWatcher":
         self.thread.start()
         return self
 
     def check(self) -> bool:
-        if not self.changed and env_fingerprint(self.path) != self.start_print:
+        if not self.changed and self.fingerprint() != self.start_print:
             self.changed = True
-            log.info(".env changed: restarting the bot with the new settings")
+            log.info("settings or code changed: restarting the bot")
             self.on_change()
         return self.changed
 

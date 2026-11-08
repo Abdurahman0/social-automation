@@ -18,7 +18,7 @@ from socialauto.platforms.dryrun import DryRunLog
 from socialauto.reel import layout, naming, research, script as rs
 from socialauto.reel.broll import Candidate, acceptable, collect, license_ok
 from socialauto.reel.buffer import DryRunBuffer, GraphBuffer, story_meta, youtube_meta
-from socialauto.reel.publish import create_drafts, create_story_draft, live_link, publish_git
+from socialauto.reel.publish import create_drafts, create_story_draft, live_link
 from socialauto.store import (BUFFER_PENDING, COVER_WAITING, DONE, SCRIPT_PENDING, STORY_PENDING, TOPIC_PENDING,
                               VIDEO_PENDING, VOICE_WAITING)
 from socialauto.telegram_bot import TelegramBot
@@ -241,26 +241,6 @@ def test_story_step_draft_with_link_reminder(tmp_path):
 
 # --- git reels/ ---------------------------------------------------------------------------------------------------------
 
-def test_publish_git_commits_only_reel_files(tmp_path):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    for args in (["init", "-q", "-b", "main"], ["config", "user.email", "t@e"], ["config", "user.name", "T"]):
-        subprocess.run(["git", "-C", str(repo), *args], check=True)
-    (repo / "README.md").write_text("x")
-    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
-    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "init"], check=True)
-    (repo / "unrelated.txt").write_text("work in progress")                  # must NOT be swept into the reel commit
-    src = tmp_path / "v.mp4"
-    src.write_bytes(b"video")
-    cover = tmp_path / "c.jpg"
-    cover.write_bytes(b"img")
-    res = publish_git(repo, repo / "reels", "2026-11-10-suv", {"2026-11-10-suv.mp4": src, "2026-11-10-suv_cover.jpg": cover}, "Suv")
-    assert res.committed and not res.pushed and "kutilmoqda" in res.note and res.lfs_files == []
-    files = subprocess.run(["git", "-C", str(repo), "show", "--name-only", "--format=", "HEAD"], capture_output=True, text=True).stdout.split()
-    assert sorted(files) == ["reels/2026-11-10-suv/2026-11-10-suv.mp4", "reels/2026-11-10-suv/2026-11-10-suv_cover.jpg"]
-    assert "unrelated.txt" in subprocess.run(["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True).stdout
-
-
 # --- the whole flow through Telegram (fakes: Claude, STT, B-roll, renderer) ----------------------------------------------
 
 def press(bot, data):
@@ -324,8 +304,9 @@ def test_full_owner_flow(app, tmp_path, clock, long_voice):
     v = app.store.video(vid)
     assert v["status"] == BUFFER_PENDING
     reel = wf.reels.get(vid)
-    assert set(reel["drafts"]) == {"instagram", "youtube", "linkedin"} and "kutilmoqda" in reel["git_note"]
-    pushed_cover = Path(app.settings.root) / "reels" / reel["base"] / f"{reel['base']}_cover.png"
+    assert set(reel["drafts"]) == {"instagram", "youtube", "linkedin"} and "GitHub ulanmagan" in reel["git_note"]
+    assert not (Path(app.settings.root) / "reels").exists()                 # never in the code repo (Task 07)
+    pushed_cover = app.workflow.content.reels / reel["base"] / f"{reel['base']}_cover.png"
     assert pushed_cover.read_bytes() == cover.read_bytes()                    # law 16: the owner's cover, unchanged
     drafts = [e for e in dryrun_entries(app) if e.get("kind") == "draft"]
     assert len(drafts) == 3 and all(d["input"]["saveToDraft"] is True and "dueAt" not in d["input"] for d in drafts)

@@ -8,7 +8,10 @@ token*.json
 *.pem
 *.key
 
-# Runtime data
+# This computer's own settings (dry_run, content remote, ...)
+/config.local.toml
+
+# Runtime data (also data/content-repo: the user's own content repo)
 /data/
 /logs/
 *.db

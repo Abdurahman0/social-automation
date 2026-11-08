@@ -6,10 +6,46 @@
 #   ./install.sh --no-service  install everything but do not register background services
 #   ./install.sh --no-open     do not open the browser at the end
 #
+# One line, no git login and no GitHub account needed (the repo is public):
+#   curl -fsSL https://raw.githubusercontent.com/Abdurahman0/social-automation/main/install.sh | bash
+# It installs git if needed, clones over public HTTPS into ~/social-automation (SA_DIR to change) and continues.
+#
 # Messages are in Uzbek, then English. Nothing here prints a token or a password.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_URL="https://github.com/Abdurahman0/social-automation.git"
+
+bootstrap() {   # run from `curl | bash`: get the code first (anonymously), then run the real installer from it
+  local dir="${SA_DIR:-$HOME/social-automation}"
+  printf '\n==> Social Automation: kod yuklanmoqda / downloading the code → %s\n' "$dir"
+  if ! command -v git >/dev/null 2>&1; then
+    if [ "$(uname -s)" = Darwin ]; then
+      if command -v brew >/dev/null 2>&1; then brew install git >/dev/null
+      else xcode-select --install 2>/dev/null || true
+        echo "  ! git kerak / git is needed: o'rnatish oynasi ochildi — tugagach shu buyruqni qayta ishga tushiring." >&2
+        echo "    (the Command Line Tools installer opened — run this command again when it finishes)" >&2; exit 1; fi
+    elif command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then sudo apt-get install -y git >/dev/null
+    elif command -v dnf >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then sudo dnf install -y git >/dev/null
+    elif command -v pacman >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then sudo pacman -S --noconfirm git >/dev/null
+    else echo "  ! git topilmadi / git not found: install git, then run this command again." >&2; exit 1; fi
+  fi
+  # Never a login prompt: no credential helper, no terminal prompt, public HTTPS only.
+  local g=(git -c credential.helper= -c core.askPass=)
+  if [ -d "$dir/.git" ]; then
+    GIT_TERMINAL_PROMPT=0 "${g[@]}" -C "$dir" pull --ff-only --quiet
+  else
+    GIT_TERMINAL_PROMPT=0 "${g[@]}" clone --quiet "$REPO_URL" "$dir"
+  fi
+  # The owner's repo is read-only for everyone else: this copy gets no push address at all.
+  git -C "$dir" remote set-url --push origin "no-push:the-code-repo-is-read-only"
+  exec bash "$dir/install.sh" "$@"
+}
+
+SELF="${BASH_SOURCE[0]:-}"
+if [ -z "$SELF" ] || [ ! -f "$(dirname "$SELF")/socialauto/__init__.py" ]; then
+  bootstrap "$@"
+fi
+ROOT="$(cd "$(dirname "$SELF")" && pwd)"
 cd "$ROOT"
 OS="$(uname -s)"
 PORT=8090

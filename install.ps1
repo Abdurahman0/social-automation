@@ -6,6 +6,10 @@
     ... -NoService   install everything but do not register background tasks
     ... -NoOpen      do not open the browser at the end
 
+  One line, no git login and no GitHub account needed (the repo is public). In PowerShell:
+    irm https://raw.githubusercontent.com/Abdurahman0/social-automation/main/install.ps1 | iex
+  It installs Git if missing, clones over public HTTPS into %USERPROFILE%\social-automation and continues.
+
   Messages are in Uzbek, then English. Nothing here prints a token or a password.
 #>
 [CmdletBinding()]
@@ -16,7 +20,40 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$RepoUrl = 'https://github.com/Abdurahman0/social-automation.git'
+
+# --- bootstrap: started as `irm ... | iex` (no file on disk yet) -> get the code anonymously, then run the real
+# installer from it. `return`, never `exit`, here: exit would close the user's PowerShell window.
+$SelfPath = $MyInvocation.MyCommand.Path
+if (-not $SelfPath -or -not (Test-Path (Join-Path (Split-Path -Parent $SelfPath) 'socialauto/__init__.py'))) {
+    $home0 = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
+    $dir = if ($env:SA_DIR) { $env:SA_DIR } else { Join-Path $home0 'social-automation' }
+    Write-Host ""; Write-Host "==> Social Automation: kod yuklanmoqda / downloading the code -> $dir" -ForegroundColor White
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            Write-Host "  ... winget install Git.Git"
+            winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements | Out-Null
+            $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+            if (Test-Path "$env:ProgramFiles\Git\cmd") { $env:Path += ";$env:ProgramFiles\Git\cmd" }
+        }
+        if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+            Write-Host "  [X] Git o'rnatilmadi / Git could not be installed: https://git-scm.com/download/win , keyin shu buyruqni qayta ishga tushiring / then run this command again." -ForegroundColor Red
+            return
+        }
+    }
+    # Never a login prompt: no credential helper (no Git Credential Manager window), no terminal prompt.
+    $env:GIT_TERMINAL_PROMPT = '0'
+    if (Test-Path (Join-Path $dir '.git')) { git -c credential.helper= -C $dir pull --ff-only --quiet }
+    else { git -c credential.helper= clone --quiet $RepoUrl $dir }
+    if ($LASTEXITCODE -ne 0) { Write-Host "  [X] Kodni yuklab bo'lmadi / could not download the code. Internetni tekshiring / check the internet." -ForegroundColor Red; return }
+    # The owner's repo is read-only for everyone else: this copy gets no push address at all.
+    git -C $dir remote set-url --push origin 'no-push:the-code-repo-is-read-only'
+    if ($env:SA_BOOTSTRAP_DRYRUN) { Write-Host "  [OK] cloned anonymously; next: install.ps1 from $dir"; return }
+    $rest = @(); if ($Uninstall) { $rest += '-Uninstall' }; if ($NoService) { $rest += '-NoService' }; if ($NoOpen) { $rest += '-NoOpen' }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dir 'install.ps1') @rest
+    return
+}
+$Root = Split-Path -Parent $SelfPath
 Set-Location $Root
 $Port = 8090
 $Tasks = @('SocialAutomation-Bot', 'SocialAutomation-Web')
@@ -155,14 +192,31 @@ try {
             Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
             $action = New-ScheduledTaskAction -Execute 'powershell.exe' -WorkingDirectory $Root `
                 -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$wrapper`" -Kind $kind"
-            $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
             $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-                -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
-            Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Settings $settings `
-                -Description "Social Automation ($kind). Never posts; Buffer drafts only." -Force | Out-Null
+                -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew `
+                -StartWhenAvailable -RunOnlyIfNetworkAvailable:$false
+            $desc = "Social Automation ($kind). Never posts; Buffer drafts only."
+            # Start when the computer turns on, even before anyone logs in (S4U: no password stored). Windows allows
+            # this from an administrator PowerShell; otherwise the task starts when this user logs in.
+            $startup = $false
+            try {
+                $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U -RunLevel Limited
+                $triggers = @((New-ScheduledTaskTrigger -AtStartup), (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME))
+                Register-ScheduledTask -TaskName $name -Action $action -Trigger $triggers -Settings $settings -Principal $principal `
+                    -Description $desc -Force -ErrorAction Stop | Out-Null
+                $startup = $true
+            } catch {
+                $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+                Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Settings $settings `
+                    -Description $desc -Force | Out-Null
+            }
             Start-ScheduledTask -TaskName $name
         }
-        Ok "Vazifalar ishga tushdi / tasks started (Windows'ga kirganingizda o'zi ishlaydi / start at logon)"
+        if ($startup) { Ok "Vazifalar ishga tushdi: kompyuter yonganda o'zi ishlaydi / tasks start when the computer turns on" }
+        else {
+            Ok "Vazifalar ishga tushdi: Windows'ga kirganingizda o'zi ishlaydi / tasks start at logon"
+            Warn "Kirishdan oldin ishlashi uchun install.ps1 ni administrator PowerShell'da bir marta ishga tushiring / run once as administrator to start before logon."
+        }
     }
 
     $url = "http://localhost:$Port/setup"

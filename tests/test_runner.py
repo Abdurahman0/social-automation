@@ -45,3 +45,24 @@ def test_claude_logged_out_alerts_again_only_after_it_worked(app, monkeypatch):
     status["loggedIn"] = False
     assert runner.claude_alert(app) is True
     assert sum(i.kind == "owner_action" for i in app.outbox.pending(50)) == 2
+
+
+def test_waits_quietly_for_internet_then_continues(monkeypatch):
+    from socialauto import netcheck
+    answers = [False, False, True]
+    monkeypatch.setattr(netcheck, "online", lambda max_age=0: answers.pop(0))
+    stop = threading.Event()
+    assert netcheck.wait_until_online(stop=stop, every=0) is True and answers == []
+    monkeypatch.setattr(netcheck, "online", lambda max_age=0: False)
+    stop.set()
+    assert netcheck.wait_until_online(stop=stop, every=0) is False
+
+
+def test_update_request_restarts_the_bot(tmp_path):
+    env, req = tmp_path / ".env", tmp_path / "data" / "restart_request"
+    env.write_text("A=1\n")
+    calls = []
+    w = runner.EnvWatcher(env, lambda: calls.append(1), also=(req,))
+    req.parent.mkdir()
+    req.write_text("1")
+    assert w.check() is True and calls == [1]

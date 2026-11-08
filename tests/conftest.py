@@ -196,7 +196,9 @@ def root(tmp_path):
 
 @pytest.fixture
 def settings(root, tmp_path):
-    s = load_settings(ROOT / "config.toml", root / "missing.env", root=root)
+    shutil.copyfile(ROOT / "config.toml", root / "config.toml")      # never this computer's config.local.toml
+    s = load_settings(root / "config.toml", root / "missing.env", root=root)
+    assert not s.github.content_remote                                  # tests never push anywhere real
     reel = ReelConfig(work_base=str(tmp_path / "mb" / "_work"), exports=str(tmp_path / "mb" / "exports"),
                       research_dir=str(tmp_path / "mb" / "_work" / "research"))
     return replace(s, reel=reel, allowed_user_ids=frozenset({111}), telegram_token="x", dashboard_password="secret-pass",

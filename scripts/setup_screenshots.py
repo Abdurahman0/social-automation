@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from screenshots import CHECK_JS, DEVICES  # noqa: E402
 
 FAKE_TOKEN = "1234567890:AAH" + "TestOnlyDryRunValue_" + "x" * 16       # right shape, not a real bot
-STEPS = ["1-password", "2-telegram", "3-buffer", "4-extra", "5-claude", "6-done"]
+STEPS = ["1-password", "2-telegram", "3-buffer"]
 
 
 def chrome() -> str:
@@ -85,16 +85,14 @@ def run(url: str, root: Path, out: Path) -> int:
                 shot(STEPS[2])
                 page.click("button:has-text('Davom etish')")
 
-                page.wait_for_selector("text=4. Qo'shimcha")
-                shot(STEPS[3])
-                page.click("button:has-text('Keyinroq')")
-
-                page.wait_for_selector("text=5. Claude")
-                shot(STEPS[4])
-                page.click("button:has-text('Davom etish')")
-
-                page.wait_for_selector("text=6. Tayyor")
-                shot(STEPS[5])
+                for step, heading in (("4-github", "4. Sizning GitHub"), ("5-claude", "5. Claude"),
+                                      ("6-stats", "6. Instagram va YouTube"), ("7-extra", "7. Qo'shimcha")):
+                    page.wait_for_selector(f"h2:has-text(\"{heading}\")", timeout=20000)
+                    shot(step)
+                    later = page.locator("form.setup-form button:has-text('Keyinroq')")
+                    (later if later.count() else page.locator("form.setup-form button:has-text('Davom etish')")).first.click()
+                page.wait_for_selector("text=8. Tayyor")
+                shot("8-done")
                 page.click("button:has-text('Boshlash')")
                 page.wait_for_selector(".shell", timeout=15000)
 

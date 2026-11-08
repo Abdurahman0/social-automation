@@ -59,7 +59,7 @@ class ReelConfig:
     work_base: str = "~/MediaBuffer/_work"     # outside any cloud-synced folder
     exports: str = "~/MediaBuffer/exports"
     research_dir: str = "~/MediaBuffer/_work/research"
-    reels_dir: str = "reels"                   # inside this git repo
+    reels_dir: str = "reels"                   # inside the content repo (github.content_dir)
     stt_model: str = "models/rubaistt-medium-int8-ct2"
     words_per_second: float = 2.2
     recent_posts: int = 30
@@ -90,6 +90,17 @@ class WebConfig:
 
 
 @dataclass(frozen=True)
+class GitHubConfig:
+    """Task 07: the code repo is read-only (updates only); content goes to the user's OWN content repo."""
+    code_repo: str = "Abdurahman0/social-automation"     # upstream code: fetch/pull only, never written by the app
+    content_repo: str = "social-automation-content"     # created (private) in the user's own GitHub account
+    content_dir: str = "data/content-repo"              # local clone of the content repo (git-ignored)
+    content_remote: str = ""                            # optional fixed remote (SSH URL or a local bare repo)
+    oauth_client_id: str = ""                           # public id of the GitHub OAuth app (device flow, no secret)
+    update_check_hours: int = 6
+
+
+@dataclass(frozen=True)
 class AnalyticsConfig:
     refresh_minutes: int = 30
     reports_refresh_hours: int = 6
@@ -110,6 +121,7 @@ class Settings:
     instagram: InstagramConfig = field(default_factory=InstagramConfig)
     web: WebConfig = field(default_factory=WebConfig)
     analytics: AnalyticsConfig = field(default_factory=AnalyticsConfig)
+    github: GitHubConfig = field(default_factory=GitHubConfig)
     # from .env
     telegram_token: str = ""
     allowed_user_ids: frozenset[int] = frozenset()
@@ -184,6 +196,9 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None,
     raw: dict[str, Any] = {}
     if config_path.exists():
         raw = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    local = config_path.with_name("config.local.toml")         # this computer's own choices (git-ignored)
+    if local.exists():
+        raw = merge(raw, tomllib.loads(local.read_text(encoding="utf-8")))
     env: dict[str, str] = {}
     if env_path.exists():
         from dotenv import dotenv_values
@@ -206,6 +221,7 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None,
         instagram=_build(InstagramConfig, raw.get("instagram")),
         web=_build(WebConfig, raw.get("web")),
         analytics=_build(AnalyticsConfig, raw.get("analytics")),
+        github=_build(GitHubConfig, raw.get("github")),
         telegram_token=get("TELEGRAM_BOT_TOKEN"),
         allowed_user_ids=parse_ids(get("TELEGRAM_ALLOWED_USER_IDS")),
         dashboard_password=get("DASHBOARD_PASSWORD"),
@@ -219,6 +235,40 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None,
 
 def with_overrides(settings: Settings, **kwargs: Any) -> Settings:
     return replace(settings, **kwargs)
+
+
+def merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
+    out = dict(base)
+    for k, v in over.items():
+        out[k] = merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
+def _toml_value(v: Any) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return repr(v)
+    return '"' + str(v).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def set_local_value(root: Path, section: str | None, key: str, value: Any) -> None:
+    """Save one setting of THIS computer in config.local.toml (git-ignored), so config.toml stays as in the code
+    repo and updates are always a clean fast-forward."""
+    path = root / "config.local.toml"
+    data = tomllib.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if section:
+        data.setdefault(section, {})[key] = value
+    else:
+        data[key] = value
+    top = [f"{k} = {_toml_value(v)}" for k, v in data.items() if not isinstance(v, dict)]
+    parts = ["# This computer's own settings (not in git). They override config.toml.", *top]
+    for sec, vals in data.items():
+        if isinstance(vals, dict):
+            parts += ["", f"[{sec}]", *[f"{k} = {_toml_value(v)}" for k, v in vals.items()]]
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text("\n".join(parts) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def set_config_value(path: Path, section: str | None, key: str, value: str) -> None:

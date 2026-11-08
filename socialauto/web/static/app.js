@@ -748,63 +748,74 @@ async function renderSkills() {
   draw();
 }
 
-// ---------------------------------------------------------------- repo (GitHub)
-function catList(groups) {
-  return h("div", { class: "cat-list" }, groups.map((g) => {
-    const btn = h("button", { class: "cat-btn", type: "button", "aria-expanded": "false" }, h("span", { text: g.label }), h("span", { class: "n", text: `${g.count} ta fayl` }), icon("chevron"));
-    btn.addEventListener("click", () => btn.setAttribute("aria-expanded", String(btn.getAttribute("aria-expanded") !== "true")));
-    return h("div", { class: "cat" }, btn, h("ul", { class: "file-list" }, g.files.map((f) => h("li", { text: f }))));
-  }));
+// ---------------------------------------------------------------- repo (GitHub): the user's OWN content repo
+function avatarNode(url, label, cls = "avatar") {
+  const fallback = h("span", { class: `${cls} fallback`, text: (label || "?").replace(/^@/, "").slice(0, 1).toUpperCase() });
+  if (!url) return fallback;
+  const img = h("img", { class: cls, src: url, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+  img.addEventListener("error", () => img.replaceWith(fallback));
+  return img;
+}
+function extLink(href, text, cls = "link") { return h("a", { class: cls, href, target: "_blank", rel: "noopener noreferrer" }, text, icon("ext")); }
+function accountCard(a, content) {
+  if (!a.connected) {
+    const local = content && content.remote;
+    return h("div", { class: "card" }, h("div", { class: "big-state" }, h("div", { class: `glyph ${local ? "ok" : "off"}` }, icon(local ? "cloud" : "cloudOff")),
+      h("div", {}, h("h2", { text: local ? "Kontent repo ulangan" : "GitHub hali ulanmagan" }),
+        h("p", { class: "hint", style: "margin:4px 0 0", text: local ? `Reellar shu manzilga yuklanadi: ${content.remote}` : "Reellar hozircha shu kompyuterda saqlanadi. Sozlamalar → GitHub'da o'z akkauntingizni ulang — ular sizning yopiq repoingizga yuklanadi." }))),
+      local && content.remote_url ? h("div", { class: "controls" }, extLink(content.remote_url, "Repoini ochish", "btn")) : h("div", { class: "controls" }, h("a", { class: "btn primary", href: "#/settings/github" }, icon("github"), "GitHub'ni ulash")));
+  }
+  return h("div", { class: "card" }, h("div", { class: "acct" }, avatarNode(a.avatar_url, a.login, "avatar lg"),
+      h("div", { class: "acct-text" }, h("h2", { text: a.name || `@${a.login}` }), h("a", { class: "link", href: a.profile_url, target: "_blank", rel: "noopener noreferrer", text: `@${a.login}` }))),
+    h("div", { class: "kv" }, h("div", {}, h("span", { text: "Kontent repo" }), a.repo_url ? h("a", { class: "link", href: a.repo_url, target: "_blank", rel: "noopener noreferrer", text: a.repo_name }) : h("b", { text: a.repo_name })),
+      h("div", {}, h("span", { text: "Ko'rinishi" }), h("b", { text: a.repo_exists === false ? "hali yaratilmagan" : "yopiq (faqat siz)" })),
+      content ? h("div", {}, h("span", { text: "Reellar" }), h("b", { text: `${content.count} ta` })) : null,
+      content ? h("div", {}, h("span", { text: "Yuklanmagan" }), h("b", { text: content.unpushed ? `${content.unpushed} ta o'zgarish` : "yo'q" })) : null));
 }
 async function renderRepo() {
   const r = await api("/api/repo");
-  if (!r.is_repo) { shell("repo", "GitHub", null, [], h("div", { class: "chart-empty", text: "Bu papka hali git loyihasi emas." })); return; }
-  const conn = r.connected
-    ? h("div", { class: "card" }, h("div", { class: "big-state" }, h("div", { class: "glyph ok" }, icon("cloud")), h("div", {}, h("h2", { text: `${r.host} ulangan` }), h("p", { class: "hint", style: "margin:4px 0 0", text: r.repo || "" }))),
-        h("div", { class: "kv" }, h("div", {}, h("span", { text: "Loyiha" }), h("b", { text: r.repo || "—" })), h("div", {}, h("span", { text: "Tarmoq (branch)" }), h("b", { text: r.branch })),
-          h("div", {}, h("span", { text: "Oxirgi yuklash" }), h("b", { text: r.last_push || "hali yuklanmagan" })), h("div", {}, h("span", { text: "Yuklanmagan o'zgarishlar" }), h("b", { text: `${r.ahead} ta` }))))
-    : h("div", { class: "card" }, h("div", { class: "big-state" }, h("div", { class: "glyph off" }, icon("cloudOff")), h("div", {}, h("h2", { text: "GitHub hali ulanmagan" }), h("p", { class: "hint", style: "margin:4px 0 0", text: "Bo'sh GitHub repo oching va havolasini yuboring — men uni ulab, hammasini yuklayman." }))),
-        h("div", { class: "kv" }, h("div", {}, h("span", { text: "Tarmoq (branch)" }), h("b", { text: r.branch })), h("div", {}, h("span", { text: "Saqlangan o'zgarishlar" }), h("b", { text: `${r.total_commits} ta` })),
-          h("div", {}, h("span", { text: "Birinchi yuklashda ketadi" }), h("b", { text: `${r.ahead} ta o'zgarish` }))));
-  const allPending = r.ahead && r.ahead >= r.total_commits;   // never pushed: the whole history goes
-  const lastGroups = r.ahead_commits.length ? mergeGroups(r.ahead_commits) : [];
-  const pending = h("div", { class: "card" }, h("h2", { text: "Keyingi yuklashda ketadi" }),
-    h("p", { class: "hint", text: !r.ahead ? "Hamma saqlangan o'zgarishlar GitHub'da bor."
-      : allPending ? `Hammasi: ${r.ahead} ta saqlangan o'zgarish (tarixi o'ng tomonda). GitHub ulangach, birinchi yuklashda ketadi.`
-      : `${r.ahead} ta saqlangan o'zgarish hali GitHub'da yo'q:` }),
-    r.ahead && !allPending ? h("ul", { class: "timeline" }, r.ahead_commits.slice(0, 10).map((c) => h("li", { class: "pending" }, h("div", { class: "t-title", text: c.title }), h("div", { class: "t-meta" }, h("span", { text: c.when }), h("span", { text: `${c.files} ta fayl` }))))) : null,
-    lastGroups.length ? h("div", {}, h("p", { class: "hint", style: "margin:14px 0 0", text: "Ulardagi fayllar, turlari bo'yicha (bosib, nomlarini ko'ring):" }), catList(lastGroups)) : null,
-    h("h2", { class: "section-gap", text: "Hali saqlanmagan o'zgarishlar" }),
-    r.uncommitted.count ? h("div", {}, h("p", { class: "hint", text: `${r.uncommitted.count} ta fayl o'zgargan — saqlangach (commit), ular ham yuklanadi.` }), catList(r.uncommitted.groups))
-      : h("p", { class: "hint", text: "Yo'q — hamma narsa saqlangan." }));
-  const never = h("div", { class: "card" }, h("h2", { text: "Hech qachon yuklanmaydi" }), h("p", { class: "hint", text: "Bular faqat shu kompyuterda qoladi — GitHub'ga hech qachon chiqmaydi:" }),
+  const code = h("div", { class: "card" }, h("div", { class: "big-state" }, h("div", { class: "glyph ok" }, icon("shield")),
+      h("div", {}, h("h2", { text: "Dastur kodi" }), h("p", { class: "hint", style: "margin:4px 0 0", text: "Faqat yangilanishlar olinadi. Ilova bu repoga hech qachon hech narsa yozmaydi — reellaringiz unga tushmaydi." }))),
+    h("div", { class: "kv" }, h("div", {}, h("span", { text: "Manba" }), h("a", { class: "link", href: r.code.url, target: "_blank", rel: "noopener noreferrer", text: r.code.repo })),
+      h("div", {}, h("span", { text: "Yangilanish" }), h("a", { class: "link", href: "#/settings", text: "Sozlamalarda tekshirish" }))));
+  const reels = h("div", { class: "card" }, h("h2", { text: "Oxirgi reellar" }),
+    r.content.reels.length ? h("ul", { class: "timeline" }, r.content.reels.map((x) => h("li", {}, h("div", { class: "t-title", text: x.title }), h("div", { class: "t-meta" }, h("span", { text: x.date ? fmtDay(x.date) : "" })))))
+      : h("p", { class: "hint", text: "Hali reel yo'q. Tasdiqlangan har bir reel (video, muqovangiz, ssenariy, tadqiqot, manbalar) shu yerda paydo bo'ladi." }));
+  const never = h("div", { class: "card" }, h("h2", { text: "Hech qachon yuklanmaydi" }), h("p", { class: "hint", text: "Bular faqat shu kompyuterda qoladi — hech qaysi GitHub'ga chiqmaydi:" }),
     h("ul", { class: "never" }, r.never.map((n) => h("li", {}, icon("shield"), h("div", {}, h("b", { text: n.title }), n.detail)))));
-  const history = h("div", { class: "card" }, h("h2", { text: "Oxirgi o'zgarishlar tarixi" }), h("p", { class: "hint", text: `Oxirgi ${r.history.length} ta saqlangan o'zgarish, eng yangisi tepada.` }),
-    h("ul", { class: "timeline" }, r.history.map((c) => h("li", { class: r.ahead_commits.some((a) => a.short === c.short) ? "pending" : "" }, h("div", { class: "t-title", text: c.title }),
-      h("div", { class: "t-meta" }, h("span", { text: c.when }), h("span", { text: `${c.files} ta fayl` }), h("span", { class: "short-hash", text: c.short }))))));
-  const body = h("div", {}, h("div", { class: "repo-grid" }, conn, never), h("div", { class: "repo-grid section-gap" }, pending, history));
-  shell("repo", "GitHub", "GitHub'ga nima yuklanadi va nima yuklanmaydi — oddiy so'zlar bilan", [], body);
+  const history = h("div", { class: "card" }, h("h2", { text: "Kontent reposi tarixi" }),
+    r.history.length ? h("ul", { class: "timeline" }, r.history.map((c) => h("li", {}, h("div", { class: "t-title", text: c.title }), h("div", { class: "t-meta" }, h("span", { text: c.when }), h("span", { text: `${c.files} ta fayl` })))))
+      : h("p", { class: "hint", text: "Hali bo'sh." }));
+  const body = h("div", {}, h("div", { class: "repo-grid" }, accountCard(r.account, r.content), code), h("div", { class: "repo-grid section-gap" }, reels, never), h("div", { class: "section-gap" }, history));
+  shell("repo", "GitHub", "Reellaringiz sizning o'z GitHub'ingizga boradi; dastur kodi faqat o'qiladi", [], body);
 }
-function mergeGroups(list) {
-  const map = new Map();
-  for (const c of list) for (const g of c.groups) { const cur = map.get(g.label) || new Set(); g.files.forEach((f) => cur.add(f)); map.set(g.label, cur); }
-  const order = ["Kod", "Sayt", "Hujjatlar", "Testlar", "Sozlamalar", "Media/rasmlar", "Boshqa"];
-  return order.filter((k) => map.has(k)).map((k) => ({ label: k, count: map.get(k).size, files: [...map.get(k)].sort() }));
+function fmtDay(iso) {
+  const MON = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
+  const [y, m, d] = iso.split("-").map(Number);
+  return `${d}-${MON[m - 1]}, ${y}`;
 }
 
 // ---------------------------------------------------------------- setup ("Sozlash") and settings ("Sozlamalar")
 const REASONS = {
-  too_short: "Parol kamida 8 belgidan iborat bo'lsin.", bad_token: "Token ko'rinishi noto'g'ri. BotFather bergan tokenni to'liq nusxalang (masalan 123456:ABC...).",
+  too_short: "Parol kamida 8 belgidan iborat bo'lsin.", bad_token: "Token ko'rinishi noto'g'ri. To'liq nusxalab qayta qo'ying.",
   bad_ids: "ID faqat raqamlardan iborat bo'ladi; bir nechta bo'lsa vergul bilan ajrating.", bad_app_id: "App ID faqat raqamlardan iborat.",
   missing: "Avval qiymatni kiriting.", rejected: "Xizmat bu qiymatni qabul qilmadi — qayta nusxalab ko'ring.",
   network: "Internetga ulanib bo'lmadi. Ulanishni tekshirib, qayta urinib ko'ring.", password_first: "Avval parolni o'rnating.",
-  local_only: "Sozlash sahifasi faqat shu kompyuterning o'zidan ochiladi.", too_long: "Qiymat juda uzun.",
+  local_only: "Sozlash sahifasi faqat shu kompyuterning o'zidan ochiladi.", too_long: "Qiymat juda uzun.", mismatch: "Ikkala parol bir xil emas.",
+  no_client_id: "Bu nusxada GitHub tugmasi sozlanmagan — pastdagi «token bilan» usulidan foydalaning.",
+  meta_keys: "Avval Meta App ID va App Secret'ni saqlang.", no_client: "Avval Google'dan yuklab olingan JSON faylni tanlang.",
+  bad_client: "Bu fayl Google OAuth mijoz fayliga o'xshamaydi. «Desktop app» turidagi mijozning JSON faylini tanlang.",
+  bad_code: "Kod qabul qilinmadi. Kirish sahifasidagi kodni to'liq nusxalab qayta urinib ko'ring.", not_started: "Avval «Claude'ga kirish» tugmasini bosing.",
+  not_installed: "Bu kompyuterda Claude Code o'rnatilmagan.", timeout: "Kutish vaqti tugadi — qaytadan boshlang.", not_finished: "Kirish tugallanmadi — qaytadan urinib ko'ring.",
+  no_ig_account: "Facebook sahifalaringizdan hech biriga Instagram Business/Creator akkaunt bog'lanmagan.", expired: "Havola eskirdi — qaytadan bosing.",
+  scopes: "Faqat statistika (o'qish) ruxsati kerak — qaytadan ulang.", cancel: "Ulanish bekor qilindi.",
 };
 function reasonText(r) { return REASONS[r] || "Saqlab bo'lmadi. Qayta urinib ko'ring."; }
 const SETUP_STEPS = [
   { key: "password", icon: "key", label: "Parol" }, { key: "telegram", icon: "send", label: "Telegram" },
-  { key: "buffer", icon: "layers", label: "Buffer" }, { key: "extra", icon: "plus", label: "Qo'shimcha" },
-  { key: "claude", icon: "cpu", label: "Claude" }, { key: "done", icon: "flag", label: "Tayyor" },
+  { key: "buffer", icon: "layers", label: "Buffer" }, { key: "github", icon: "github", label: "GitHub" },
+  { key: "claude", icon: "cpu", label: "Claude" }, { key: "stats", icon: "insights", label: "Statistika" },
+  { key: "extra", icon: "plus", label: "Qo'shimcha" }, { key: "done", icon: "flag", label: "Tayyor" },
 ];
 function secretField({ label, name, state, placeholder, help, plain = false }) {
   const info = state.values[name] || { set: false, shown: "" };
@@ -825,31 +836,68 @@ function secretField({ label, name, state, placeholder, help, plain = false }) {
   return { el: wrap, input, value: () => input.value.trim(), changed: () => !field.hidden && input.value.trim() !== "" };
 }
 function resultLine() { return h("div", { class: "sf-result", role: "status" }); }
-function showResult(box, ok, text) { box.className = `sf-result ${ok ? "good" : "bad"}`; box.replaceChildren(h("span", { text: ok ? "✓" : "!" , class: "mark" }), h("span", { text })); }
+function showResult(box, ok, text) { box.className = `sf-result ${ok ? "good" : "bad"}`; box.replaceChildren(h("span", { text: ok ? "✓" : "!", class: "mark" }), h("span", { text })); }
+function copyButton(text, label = "Nusxalash") {
+  const b = h("button", { class: "btn", type: "button" }, label);
+  b.addEventListener("click", async () => { try { await navigator.clipboard.writeText(text); b.textContent = "Nusxalandi ✓"; setTimeout(() => { b.textContent = label; }, 1800); } catch (e) { /* the text stays visible to copy by hand */ } });
+  return b;
+}
+function toggleBlock(label, body) {
+  const btn = h("button", { class: "btn toggle", type: "button", "aria-expanded": "false" }, icon("chevron"), label);
+  body.hidden = true;
+  btn.addEventListener("click", () => { body.hidden = !body.hidden; btn.setAttribute("aria-expanded", String(!body.hidden)); btn.classList.toggle("open", !body.hidden); });
+  return h("div", { class: "toggle-block" }, btn, body);
+}
+function guide(steps) { return h("ol", { class: "guide" }, steps.map((s) => h("li", {}, s))); }
+function statusRow(ok, title, help) {
+  return h("div", { class: `status-row ${ok ? "good" : "bad"}` }, h("span", { class: "mark", text: ok ? "✓" : "!" }), h("div", {}, h("b", { text: title }), help ? h("p", { class: "sf-help" }, help) : null));
+}
+function filePicker(label, accept, onText) {
+  const input = h("input", { type: "file", accept, class: "visually-hidden", tabindex: "-1", "aria-hidden": "true" });
+  const name = h("span", { class: "fp-name", text: "Fayl tanlanmagan" });
+  const btn = h("button", { class: "btn", type: "button" }, icon("plus"), label);
+  btn.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => {
+    const f = input.files && input.files[0];
+    if (!f) return;
+    name.textContent = f.name;
+    const rd = new FileReader();
+    rd.onload = () => onText(String(rd.result || ""));
+    rd.readAsText(f);
+  });
+  return h("div", { class: "file-picker" }, btn, name, input);
+}
 
-async function renderSetup(firstRun) {
+async function renderSetup(firstRun, startKey) {
   let state;
   try { state = await api("/api/setup/state"); } catch (e) {
     if (e.status === 403) { $app.replaceChildren(h("div", { class: "login" }, h("div", { class: "card" }, brand(), h("h1", { text: "Sozlash" }), h("p", { text: reasonText("local_only") })))); return; }
     throw e;
   }
-  let step = firstRun ? (state.values.DASHBOARD_PASSWORD.set ? 1 : 0) : 1;
+  const stepIndex = (k) => Math.max(0, SETUP_STEPS.findIndex((s) => s.key === k));
+  let step = firstRun ? (state.values.DASHBOARD_PASSWORD.set ? 1 : 0) : (startKey ? stepIndex(startKey) : 1);
   const body = h("div", { class: "setup-body" });
   const stepper = h("ol", { class: "setup-steps" });
+  let timers = [];
+  const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
   const draw = async () => {
+    clearTimers();
     stepper.replaceChildren(...SETUP_STEPS.map((s, i) => {
       const li = h("li", { class: i < step ? "done" : i === step ? "now" : "" }, h("span", { class: "si" }, icon(i < step ? "check" : s.icon)), h("span", { class: "sl", text: s.label }));
-      if (!firstRun || i < step) { li.classList.add("go"); li.tabIndex = 0; li.addEventListener("click", () => { step = i; draw(); }); }
+      if (!firstRun || i < step) { li.classList.add("go"); li.tabIndex = 0; li.setAttribute("role", "button"); li.setAttribute("aria-label", s.label);
+        const go = () => { step = i; if (!firstRun) history.replaceState(null, "", `#/settings/${s.key}`); draw(); };
+        li.addEventListener("click", go); li.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } }); }
       return li;
     }));
     body.replaceChildren(await stepView(SETUP_STEPS[step].key));
-    body.querySelector("input")?.focus();
+    if (firstRun) body.querySelector("input:not([type=file])")?.focus();
   };
-  const next = async () => { state = await api("/api/setup/state"); step = Math.min(SETUP_STEPS.length - 1, step + 1); await draw(); };
+  const next = async () => { state = await api("/api/setup/state"); step = Math.min(SETUP_STEPS.length - 1, step + 1); if (!firstRun) history.replaceState(null, "", `#/settings/${SETUP_STEPS[step].key}`); await draw(); };
   const nav = (onNext, { skip = false, label = "Davom etish" } = {}) => {
     const err = h("div", { class: "err", role: "alert" });
     const go = h("button", { class: "btn primary", type: "submit" }, label);
-    const row = h("div", { class: "setup-nav" }, step > (firstRun ? 1 : 0) ? (() => { const b = h("button", { class: "btn", type: "button" }, "Orqaga"); b.addEventListener("click", () => { step -= 1; draw(); }); return b; })() : h("span"),
+    const back = step > (firstRun ? 1 : 0) ? (() => { const b = h("button", { class: "btn", type: "button" }, "Orqaga"); b.addEventListener("click", () => { step -= 1; draw(); }); return b; })() : h("span");
+    const row = h("div", { class: "setup-nav" }, back,
       h("div", { class: "controls" }, skip ? (() => { const b = h("button", { class: "btn", type: "button" }, "Keyinroq"); b.addEventListener("click", next); return b; })() : null, go));
     return { row, err, go, run: async (e) => { e && e.preventDefault(); err.textContent = ""; go.disabled = true; try { await onNext(); } catch (ex) { err.textContent = reasonText(ex.message); } go.disabled = false; } };
   };
@@ -858,22 +906,22 @@ async function renderSetup(firstRun) {
     for (const [k, f] of Object.entries(fields)) if (f.changed()) values[k] = f.value();
     if (Object.keys(values).length) await api("/api/setup/save", { method: "POST", body: JSON.stringify({ values }) });
   };
+  const form = (title, hint, ...kids) => h("form", { class: "setup-form" }, h("h2", { text: title }), hint ? h("p", { class: "hint", text: hint }) : null, ...kids);
+  const n = (i) => `${i}. `;
   async function stepView(key) {
     if (key === "password") {
       const a = h("input", { type: "password", autocomplete: "new-password", placeholder: "Yangi parol (kamida 8 belgi)", "aria-label": "Yangi parol" });
       const b = h("input", { type: "password", autocomplete: "new-password", placeholder: "Parolni takrorlang", "aria-label": "Parolni takrorlang" });
-      const n = nav(async () => {
+      const nv = nav(async () => {
         if (a.value.length < 8) throw new Error("too_short");
-        if (a.value !== b.value) { throw new Error("mismatch"); }
+        if (a.value !== b.value) throw new Error("mismatch");
         await api("/api/setup/password", { method: "POST", body: JSON.stringify({ password: a.value }) });
         await next();
       });
-      REASONS.mismatch = "Ikkala parol bir xil emas.";
-      const form = h("form", { class: "setup-form" }, h("h2", { text: "1. Sayt paroli" }),
-        h("p", { class: "hint", text: "Bu parol bilan statistika saytiga kirasiz. U faqat shu kompyuterda, .env faylida saqlanadi." }),
-        h("div", { class: "field" }, a), h("div", { class: "field" }, b), n.err, n.row);
-      form.addEventListener("submit", n.run);
-      return form;
+      const f = form(n(1) + "Sayt paroli", "Bu parol bilan statistika saytiga kirasiz. U faqat shu kompyuterda, .env faylida saqlanadi.",
+        h("div", { class: "field" }, a), h("div", { class: "field" }, b), nv.err, nv.row);
+      f.addEventListener("submit", nv.run);
+      return f;
     }
     if (key === "telegram") {
       const token = secretField({ label: "Bot tokeni", name: "TELEGRAM_BOT_TOKEN", state, placeholder: "123456789:ABC...", help: "Telegram'da @BotFather → /newbot → bot nomi → u bergan tokenni shu yerga qo'ying." });
@@ -887,83 +935,303 @@ async function renderSetup(firstRun) {
         catch (e) { showResult(res, false, reasonText(e.message)); }
         check.disabled = false;
       });
-      const n = nav(async () => { await saveValues({ TELEGRAM_BOT_TOKEN: token, TELEGRAM_ALLOWED_USER_IDS: ids }); await next(); }, { skip: true });
-      const form = h("form", { class: "setup-form" }, h("h2", { text: "2. Telegram bot" }), h("p", { class: "hint", text: "Bot sizga mavzular, ssenariy, video va qoralamalar haqida yozadi. Faqat siz kiritgan ID egalari u bilan ishlay oladi." }),
-        token.el, h("div", { class: "controls" }, check), res, ids.el, n.err, n.row);
-      form.addEventListener("submit", n.run);
-      return form;
+      const nv = nav(async () => { await saveValues({ TELEGRAM_BOT_TOKEN: token, TELEGRAM_ALLOWED_USER_IDS: ids }); await next(); }, { skip: true });
+      const f = form(n(2) + "Telegram bot", "Bot sizga mavzular, ssenariy, video va qoralamalar haqida yozadi. Faqat siz kiritgan ID egalari u bilan ishlay oladi.",
+        token.el, h("div", { class: "controls" }, check), res, ids.el, nv.err, nv.row);
+      f.addEventListener("submit", nv.run);
+      return f;
     }
     if (key === "buffer") {
       const k = secretField({ label: "Buffer API kaliti", name: "BUFFER_API_KEY", state, help: "publish.buffer.com → Settings → API → Create API key. Bot u bilan faqat QORALAMA yaratadi — hech narsani o'zi joylamaydi yoki rejalashtirmaydi." });
       const res = resultLine();
+      const list = h("div", { class: "chan-list" });
       const check = h("button", { class: "btn", type: "button" }, icon("check"), "Tekshirish");
-      check.addEventListener("click", async () => {
+      const run = async (silent) => {
         check.disabled = true;
-        try { const r = await api("/api/setup/check/buffer", { method: "POST", body: JSON.stringify({ value: k.changed() ? k.value() : "" }) });
-          showResult(res, r.ok, r.ok ? (r.channels.length ? "Ulangan kanallar: " + r.channels.map((c) => `${c.service}${c.name ? " — " + c.name : ""}`).join(", ") : "Kalit ishlaydi, lekin Buffer'da kanal ulanmagan.") : reasonText(r.reason)); }
-        catch (e) { showResult(res, false, reasonText(e.message)); }
+        try {
+          const r = await api("/api/setup/check/buffer", { method: "POST", body: JSON.stringify({ value: k.changed() ? k.value() : "" }) });
+          if (r.ok) {
+            showResult(res, true, r.channels.length ? `Buffer'da ${r.channels.length} ta kanal ulangan — qoralamalar shularga tayyorlanadi:` : "Kalit ishlaydi, lekin Buffer'da hali kanal ulanmagan.");
+            const icons = { instagram: "ig", youtube: "yt" };
+            list.replaceChildren(...r.channels.map((c) => h("div", { class: "chan" }, avatarNode(c.avatar, c.name || c.service), h("div", {}, h("b", { text: c.name || c.service }), h("span", { class: "chan-svc" }, icons[c.kind] ? icon(icons[c.kind]) : null, c.service)))),
+              h("div", { class: "chan more" }, extLink(r.connect_url, "Buffer'da yana kanal ulash")));
+          } else if (!silent) { showResult(res, false, reasonText(r.reason)); list.replaceChildren(); }
+        } catch (e) { if (!silent) showResult(res, false, reasonText(e.message)); }
         check.disabled = false;
-      });
-      const n = nav(async () => { await saveValues({ BUFFER_API_KEY: k }); await next(); }, { skip: true });
-      const form = h("form", { class: "setup-form" }, h("h2", { text: "3. Buffer" }), h("p", { class: "hint", text: "Tayyor reel Buffer'da Instagram, YouTube va LinkedIn uchun qoralama bo'lib turadi; tasdiqlab rejalashtirish sizda." }),
-        k.el, h("div", { class: "controls" }, check), res, n.err, n.row);
-      form.addEventListener("submit", n.run);
-      return form;
+      };
+      check.addEventListener("click", () => run(false));
+      if (state.values.BUFFER_API_KEY.set) run(true);
+      const nv = nav(async () => { await saveValues({ BUFFER_API_KEY: k }); await next(); }, { skip: true });
+      const f = form(n(3) + "Buffer (Instagram, YouTube, LinkedIn qoralamalari)", "Tayyor reel sizning Buffer'ingizda Instagram, YouTube va LinkedIn uchun qoralama bo'lib turadi; tasdiqlab rejalashtirish sizda. Instagram va YouTube'ni Buffer'ga o'zingiz ulaysiz.",
+        k.el, h("div", { class: "controls" }, check), res, list, nv.err, nv.row);
+      f.addEventListener("submit", nv.run);
+      return f;
     }
+    if (key === "github") return githubStep();
+    if (key === "claude") return claudeStep();
+    if (key === "stats") return statsStep();
     if (key === "extra") {
       const fields = {
-        META_APP_ID: secretField({ label: "Meta App ID", name: "META_APP_ID", state, plain: true, help: "Instagram statistikasi uchun (ixtiyoriy): developers.facebook.com → ilovangiz → App settings → Basic." }),
-        META_APP_SECRET: secretField({ label: "Meta App Secret", name: "META_APP_SECRET", state }),
         PEXELS_API_KEY: secretField({ label: "Pexels kaliti", name: "PEXELS_API_KEY", state, help: "Ko'proq bepul video uchun (ixtiyoriy): pexels.com/api." }),
         PIXABAY_API_KEY: secretField({ label: "Pixabay kaliti", name: "PIXABAY_API_KEY", state, help: "Ixtiyoriy: pixabay.com/api/docs (kirgandan keyin)." }),
       };
-      const n = nav(async () => { await saveValues(fields); await next(); }, { skip: true });
-      const form = h("form", { class: "setup-form" }, h("h2", { text: "4. Qo'shimcha (ixtiyoriy)" }), h("p", { class: "hint", text: "Bularsiz ham hammasi ishlaydi. Keyinroq «Sozlamalar» sahifasida qo'shish mumkin." }),
-        h("div", { class: "sf-grid" }, Object.values(fields).map((f) => f.el)), n.err, n.row);
-      form.addEventListener("submit", n.run);
-      return form;
+      const nv = nav(async () => { await saveValues(fields); await next(); }, { skip: true });
+      const f = form(n(7) + "Qo'shimcha (ixtiyoriy)", "Bularsiz ham hammasi ishlaydi: videolar Wikimedia Commons'dan olinadi.",
+        h("div", { class: "sf-grid" }, Object.values(fields).map((x) => x.el)), nv.err, nv.row);
+      f.addEventListener("submit", nv.run);
+      return f;
     }
-    if (key === "claude") {
-      const box = h("div");
-      const fill = (c, m) => {
-        box.replaceChildren(
-          h("div", { class: `status-row ${c.installed && c.logged_in ? "good" : "bad"}` }, h("span", { class: "mark", text: c.installed && c.logged_in ? "✓" : "!" }),
-            h("div", {}, h("b", { text: !c.installed ? "Claude Code o'rnatilmagan" : c.logged_in ? `Claude'ga kirilgan${c.plan ? " (" + c.plan + ")" : ""}` : "Claude'ga kirilmagan" }),
-              h("p", { class: "sf-help" }, !c.installed ? ["O'rnatish: ", h("code", { text: "npm install -g @anthropic-ai/claude-code" }), " (yoki claude.ai/download)."]
-                : c.logged_in ? "Ssenariylar sizning o'z Claude akkauntingiz orqali yoziladi (API kalit kerak emas)."
-                : ["Terminalda ", h("code", { text: "claude" }), " yozing va o'z akkauntingiz bilan kiring. Keyin «Qayta tekshirish»ni bosing."]))),
-          h("div", { class: `status-row ${m.ready ? "good" : "bad"}` }, h("span", { class: "mark", text: m.ready ? "✓" : "!" }),
-            h("div", {}, h("b", { text: m.ready ? "O'zbekcha nutqni tanish modeli tayyor" : "Nutqni tanish modeli yuklanmagan" }),
-              h("p", { class: "sf-help" }, m.ready ? `rubaiSTT, ${m.size_mb} MB.` : ["O'rnatish skriptini qayta ishga tushiring: ", h("code", { text: "./install.sh" }), " (Windows: install.ps1)."]))));
-      };
-      fill(state.claude, state.model);
-      const re = h("button", { class: "btn", type: "button" }, icon("refresh"), "Qayta tekshirish");
-      re.addEventListener("click", async () => { re.disabled = true; try { fill(await api("/api/setup/check/claude", { method: "POST", body: "{}" }), await api("/api/setup/check/model", { method: "POST", body: "{}" })); } catch (e) { /* kept */ } re.disabled = false; });
-      const n = nav(async () => { await next(); });
-      const form = h("form", { class: "setup-form" }, h("h2", { text: "5. Claude va nutq modeli" }), h("p", { class: "hint", text: "Bot har bir foydalanuvchining o'z Claude akkauntidan foydalanadi — shu kompyuterdagi Claude Code orqali." }),
-        box, h("div", { class: "controls" }, re), n.err, n.row);
-      form.addEventListener("submit", n.run);
-      return form;
+    return doneStep();
+  }
+
+  async function githubStep() {
+    const acc = await api("/api/accounts");
+    const a = acc.github;
+    const box = h("div", { class: "gh-box" });
+    const res = resultLine();
+    const nv = nav(async () => { await next(); }, { skip: !a.connected });
+    if (a.connected) {
+      const off = h("button", { class: "btn", type: "button" }, "Uzish");
+      off.addEventListener("click", async () => {
+        if (off.dataset.sure !== "1") { off.dataset.sure = "1"; off.textContent = "Rostdan uzilsinmi? Yana bosing"; return; }
+        await api("/api/accounts/github/disconnect", { method: "POST", body: "{}" }); draw();
+      });
+      box.append(h("div", { class: "acct" }, avatarNode(a.avatar_url, a.login, "avatar lg"),
+          h("div", { class: "acct-text" }, h("b", { text: a.name || `@${a.login}` }), h("a", { class: "link", href: a.profile_url, target: "_blank", rel: "noopener noreferrer", text: `@${a.login}` }))),
+        statusRow(a.repo_exists !== false, a.repo_exists === false ? `«${a.repo_name}» repo hali yo'q` : `Reellar «${a.repo_name}» yopiq reposiga boradi`,
+          a.repo_exists === false ? h("span", {}, "Token bilan ulangan bo'lsangiz, repoini o'zingiz yarating: ", extLink(`https://github.com/new?name=${a.repo_name}&visibility=private`, "yopiq repo yaratish"), ", keyin «Tekshirish»ni bosing.")
+            : h("span", {}, extLink(a.repo_url, "Repoini ochish"))),
+        h("div", { class: "controls" }, (() => { const b = h("button", { class: "btn", type: "button" }, icon("refresh"), "Tekshirish"); b.addEventListener("click", draw); return b; })(), off));
+    } else {
+      if (acc.content && acc.content.remote) box.append(statusRow(true, "Kontent repo qo'lda ulangan", `Reellar shu manzilga yuklanadi: ${acc.content.remote}. Xohlasangiz, GitHub akkauntingizni ham ulashingiz mumkin.`));
+      const codeArea = h("div", { class: "device" });
+      const startBtn = h("button", { class: "btn primary", type: "button" }, icon("github"), "GitHub'ni ulash");
+      startBtn.disabled = !a.device_flow;
+      startBtn.addEventListener("click", async () => {
+        startBtn.disabled = true;
+        try {
+          const d = await api("/api/accounts/github/device", { method: "POST", body: "{}" });
+          const wait = h("p", { class: "hint waiting" }, h("span", { class: "pulse" }), "GitHub'da tasdiqlashingizni kutyapman…");
+          codeArea.replaceChildren(h("p", { class: "sf-help", text: "1) Kodni nusxalang. 2) GitHub sahifasini oching va kodni kiriting. 3) «Authorize» ni bosing — shu sahifa o'zi yangilanadi." }),
+            h("div", { class: "code-box" }, h("span", { class: "code", text: d.user_code }), copyButton(d.user_code)),
+            h("div", { class: "controls" }, extLink(d.verification_uri, "GitHub sahifasini ochish", "btn primary")), wait);
+          window.open(d.verification_uri, "_blank", "noopener");
+          const poll = async () => {
+            try {
+              const p = await api("/api/accounts/github/poll", { method: "POST", body: "{}" });
+              if (p.state === "done") { draw(); return; }
+              if (p.state === "expired" || p.state === "denied") { codeArea.replaceChildren(); showResult(res, false, p.state === "expired" ? "Kod eskirdi — qaytadan bosing." : "GitHub'da rad etildi."); startBtn.disabled = false; return; }
+            } catch (e) { /* keep waiting */ }
+            timers.push(setTimeout(poll, (d.interval + 1) * 1000));
+          };
+          timers.push(setTimeout(poll, (d.interval + 1) * 1000));
+        } catch (e) { showResult(res, false, reasonText(e.message)); startBtn.disabled = false; }
+      });
+      const tok = h("input", { type: "password", autocomplete: "off", spellcheck: "false", placeholder: "github_pat_...", "aria-label": "GitHub token" });
+      const save = h("button", { class: "btn", type: "button" }, "Saqlash");
+      save.addEventListener("click", async () => {
+        save.disabled = true;
+        try { const r = await api("/api/accounts/github/token", { method: "POST", body: JSON.stringify({ token: tok.value }) }); tok.value = ""; draw(); if (r.repo_missing) showResult(res, false, "Ulandi, lekin repo yo'q — uni yarating."); }
+        catch (e) { showResult(res, false, reasonText(e.message)); }
+        save.disabled = false;
+      });
+      const tokenBody = h("div", { class: "toggle-body" },
+        guide([h("span", {}, "Avval yopiq repo yarating: ", extLink(`https://github.com/new?name=${a.repo_name}&visibility=private`, a.repo_name), " (README qo'shmang)."),
+          h("span", {}, "Token oching: ", extLink("https://github.com/settings/personal-access-tokens/new", "Fine-grained token"), " → Repository access: «Only select repositories» → ", h("b", { text: a.repo_name }), "."),
+          h("span", {}, "Permissions → Repository permissions → ", h("b", { text: "Contents: Read and write" }), " (boshqa hech narsa kerak emas) → Generate token."),
+          "Tokenni shu yerga qo'ying. U faqat shu kompyuterda saqlanadi va hech qachon ko'rsatilmaydi."]),
+        h("div", { class: "field" }, tok), h("div", { class: "controls" }, save));
+      box.append(h("p", { class: "sf-help", text: a.device_flow ? "Tugmani bosing — GitHub sahifasida qisqa kodni kiritasiz. Parolingiz bu saytga yozilmaydi." : "Bu nusxada GitHub tugmasi yo'q — token bilan ulang." }),
+        h("div", { class: "controls" }, startBtn), codeArea, toggleBlock("Yoki token bilan ulash", tokenBody),
+        h("p", { class: "sf-help muted-note", text: "GitHub'siz ham ishlaydi: reellar shu kompyuterda saqlanadi va sayt buni ko'rsatadi." }));
     }
+    const f = form(n(4) + "Sizning GitHub'ingiz", "Har bir tasdiqlangan reel (video, muqovangiz, ssenariy, tadqiqot, manbalar) sizning O'Z GitHub akkauntingizdagi yopiq «social-automation-content» reposiga yuklanadi. Dastur kodi olingan repoga hech narsa yozilmaydi.",
+      box, res, nv.err, nv.row);
+    f.addEventListener("submit", nv.run);
+    return f;
+  }
+
+  async function claudeStep() {
+    const acc = await api("/api/accounts");
+    const c = acc.claude;
+    const box = h("div");
+    const res = resultLine();
+    const login = h("div", { class: "device" });
+    box.append(statusRow(c.installed && c.logged_in, !c.installed ? "Claude Code o'rnatilmagan" : c.logged_in ? `Claude'ga kirilgan${c.email ? ": " + c.email : ""}${c.plan ? " (" + c.plan + ")" : ""}` : "Claude'ga hali kirilmagan",
+      !c.installed ? h("span", {}, "O'rnatish: ", h("code", { text: c.hint })) : c.logged_in ? "Ssenariylar sizning o'z Claude obunangiz orqali yoziladi. API kalit kerak emas." : "Pastdagi tugmani bosing va o'z Claude akkauntingiz bilan kiring."),
+      statusRow(state.model.ready, state.model.ready ? "O'zbekcha nutqni tanish modeli tayyor" : "Nutqni tanish modeli yuklanmagan", state.model.ready ? `rubaiSTT, ${state.model.size_mb} MB.` : h("span", {}, "O'rnatuvchini qayta ishga tushiring: ", h("code", { text: "./install.sh" }), " (Windows: install.ps1).")));
+    if (c.installed) {
+      const go = h("button", { class: c.logged_in ? "btn" : "btn primary", type: "button" }, icon("cpu"), c.logged_in ? "Boshqa akkaunt bilan kirish" : "Claude'ga kirish");
+      go.addEventListener("click", async () => {
+        go.disabled = true; showResult(res, true, "Kirish sahifasi tayyorlanmoqda…");
+        try {
+          const s = await api("/api/accounts/claude/start", { method: "POST", body: "{}" });
+          if (s.state !== "waiting_code" || !s.url) { showResult(res, false, reasonText(s.reason || "not_finished")); go.disabled = false; return; }
+          res.className = "sf-result";
+          const code = h("input", { type: "text", autocomplete: "off", spellcheck: "false", placeholder: "Kirish sahifasi bergan kod", "aria-label": "Claude kodi" });
+          const ok = h("button", { class: "btn primary", type: "button" }, "Tasdiqlash");
+          ok.addEventListener("click", async () => {
+            ok.disabled = true;
+            try { const r = await api("/api/accounts/claude/code", { method: "POST", body: JSON.stringify({ code: code.value }) });
+              if (r.state === "done" || r.logged_in) { draw(); return; } showResult(res, false, reasonText(r.reason)); }
+            catch (e) { showResult(res, false, reasonText(e.message)); }
+            ok.disabled = false;
+          });
+          login.replaceChildren(h("p", { class: "sf-help", text: "1) Kirish sahifasini oching va o'z Claude akkauntingiz bilan kiring. 2) Sahifa ko'rsatgan kodni nusxalab, shu yerga qo'ying. 3) «Tasdiqlash»." }),
+            h("div", { class: "controls" }, extLink(s.url, "Claude kirish sahifasini ochish", "btn primary")), h("div", { class: "field" }, code), h("div", { class: "controls" }, ok));
+          window.open(s.url, "_blank", "noopener");
+        } catch (e) { showResult(res, false, reasonText(e.message)); }
+        go.disabled = false;
+      });
+      box.append(h("div", { class: "controls" }, go, (() => { const b = h("button", { class: "btn", type: "button" }, icon("refresh"), "Qayta tekshirish"); b.addEventListener("click", draw); return b; })()), login);
+    } else {
+      box.append(h("div", { class: "controls" }, (() => { const b = h("button", { class: "btn", type: "button" }, icon("refresh"), "Qayta tekshirish"); b.addEventListener("click", draw); return b; })()));
+    }
+    const nv = nav(async () => { await next(); }, { skip: !(c.installed && c.logged_in) });
+    const f = form(n(5) + "Claude va nutq modeli", "Bot har bir foydalanuvchining o'z Claude akkauntidan foydalanadi — shu kompyuterdagi Claude Code orqali. Kirish shu sahifadan qilinadi.",
+      box, res, nv.err, nv.row);
+    f.addEventListener("submit", nv.run);
+    return f;
+  }
+
+  async function statsStep() {
+    const acc = await api("/api/accounts");
+    const ig = acc.instagram, yt = acc.youtube;
+    const flash = h("div", { class: "sf-result", role: "status" });
+    const q = new URLSearchParams((location.hash.split("?")[1]) || "");
+    const r = q.get("r");
+    if (r) {
+      const [svc, out] = [r.slice(0, 2), r.slice(3)];
+      const name = svc === "ig" ? "Instagram" : "YouTube";
+      showResult(flash, out === "ok", out === "ok" ? `${name} statistikasi ulandi.` : `${name}: ${reasonText(out)}`);
+      history.replaceState(null, "", location.hash.split("?")[0]);
+    }
+    // Instagram
+    const igBox = h("div", { class: "svc-card" }, h("div", { class: "svc-head" }, h("span", { class: "svc-ico ig" }, icon("ig")), h("b", { text: "Instagram statistikasi" })));
+    if (ig.connected) {
+      const off = h("button", { class: "btn", type: "button" }, "Uzish");
+      off.addEventListener("click", async () => { await api("/api/accounts/instagram/disconnect", { method: "POST", body: "{}" }); draw(); });
+      igBox.append(statusRow(true, `@${ig.username} ulangan`, ig.page_name ? `Facebook sahifasi: ${ig.page_name}. Faqat statistika o'qiladi.` : "Faqat statistika o'qiladi."), h("div", { class: "controls" }, off));
+    } else {
+      const id = secretField({ label: "Meta App ID", name: "META_APP_ID", state, plain: true });
+      const sec = secretField({ label: "Meta App Secret", name: "META_APP_SECRET", state });
+      const igRes = resultLine();
+      const saveKeys = h("button", { class: "btn", type: "button" }, "Kalitlarni saqlash");
+      saveKeys.addEventListener("click", async () => { try { await saveValues({ META_APP_ID: id, META_APP_SECRET: sec }); state = await api("/api/setup/state"); draw(); } catch (e) { showResult(igRes, false, reasonText(e.message)); } });
+      const connect = h("button", { class: "btn primary", type: "button" }, icon("ig"), "Instagram'ni ulash");
+      connect.disabled = !ig.keys;
+      connect.addEventListener("click", async () => { try { location.href = (await api("/api/accounts/instagram/start", { method: "POST", body: "{}" })).url; } catch (e) { showResult(igRes, false, reasonText(e.message)); } });
+      const paste = h("input", { type: "password", autocomplete: "off", placeholder: "Graph API Explorer tokeni", "aria-label": "Instagram token" });
+      const pasteBtn = h("button", { class: "btn", type: "button" }, "Ulash");
+      pasteBtn.addEventListener("click", async () => { try { await api("/api/accounts/instagram/token", { method: "POST", body: JSON.stringify({ token: paste.value }) }); paste.value = ""; draw(); } catch (e) { showResult(igRes, false, reasonText(e.message)); } });
+      igBox.append(guide([
+        "Instagram akkauntingiz Business yoki Creator bo'lsin va Facebook sahifangizga bog'langan bo'lsin.",
+        h("span", {}, extLink("https://developers.facebook.com/apps/creation/", "developers.facebook.com"), " → Create app (Business) → App settings → Basic: App ID va App Secret'ni pastga qo'ying."),
+        h("span", {}, "Facebook Login → Settings → «Valid OAuth Redirect URIs» ga shuni qo'shing: ", h("code", { text: ig.redirect_uri }), " ", copyButton(ig.redirect_uri)),
+        "«Instagram'ni ulash» ni bosing va ruxsat bering (faqat o'qish: instagram_basic, instagram_manage_insights)."]),
+        h("div", { class: "sf-grid" }, id.el, sec.el), h("div", { class: "controls" }, saveKeys, connect), igRes,
+        toggleBlock("Yoki token bilan", h("div", { class: "toggle-body" }, h("p", { class: "sf-help", text: "Graph API Explorer'da ilovangizni tanlab, faqat instagram_basic, instagram_manage_insights, pages_show_list, pages_read_engagement ruxsatlari bilan token oling." }), h("div", { class: "field" }, paste), h("div", { class: "controls" }, pasteBtn))));
+    }
+    // YouTube
+    const ytBox = h("div", { class: "svc-card" }, h("div", { class: "svc-head" }, h("span", { class: "svc-ico yt" }, icon("yt")), h("b", { text: "YouTube statistikasi" })));
+    if (yt.connected) {
+      const off = h("button", { class: "btn", type: "button" }, "Uzish");
+      off.addEventListener("click", async () => { await api("/api/accounts/youtube/disconnect", { method: "POST", body: "{}" }); draw(); });
+      ytBox.append(statusRow(true, yt.title ? `«${yt.title}» kanali ulangan` : "YouTube ulangan", "Faqat statistika o'qiladi (youtube.readonly)."), h("div", { class: "controls" }, off));
+    } else {
+      const ytRes = resultLine();
+      const connect = h("button", { class: "btn primary", type: "button" }, icon("yt"), "YouTube'ni ulash");
+      connect.disabled = !yt.client;
+      connect.addEventListener("click", async () => { try { location.href = (await api("/api/accounts/youtube/start", { method: "POST", body: "{}" })).url; } catch (e) { showResult(ytRes, false, reasonText(e.message)); } });
+      const picker = filePicker("JSON faylni tanlash", ".json,application/json", async (text) => {
+        try { await api("/api/accounts/youtube/client", { method: "POST", body: JSON.stringify({ text }) }); showResult(ytRes, true, "Google fayli saqlandi. Endi «YouTube'ni ulash» ni bosing."); connect.disabled = false; }
+        catch (e) { showResult(ytRes, false, reasonText(e.message)); }
+      });
+      ytBox.append(h("ol", { class: "guide shots" },
+        h("li", {}, h("span", {}, extLink("https://console.cloud.google.com/projectcreate", "Google Cloud"), " → yangi loyiha (nomi ixtiyoriy)."), h("div", { class: "mock" }, h("span", { class: "mock-btn", text: "CREATE" }))),
+        h("li", {}, h("span", {}, "APIs & Services → Library: «YouTube Data API v3» va «YouTube Analytics API» → Enable."), h("div", { class: "mock" }, h("span", { class: "mock-chip", text: "YouTube Data API v3" }), h("span", { class: "mock-btn", text: "ENABLE" }))),
+        h("li", {}, h("span", {}, "OAuth consent screen → External → o'z emailingizni «Test users» ga qo'shing."), h("div", { class: "mock" }, h("span", { class: "mock-chip", text: "External" }), h("span", { class: "mock-chip", text: "Test users +" }))),
+        h("li", {}, h("span", {}, "Credentials → Create credentials → OAuth client ID → turi ", h("b", { text: "Desktop app" }), " → Create → Download JSON."), h("div", { class: "mock" }, h("span", { class: "mock-chip", text: "Desktop app" }), h("span", { class: "mock-btn", text: "DOWNLOAD JSON" }))),
+        h("li", {}, h("span", {}, "Yuklab olingan faylni shu yerda tanlang, so'ng «YouTube'ni ulash» → kanalingizni tanlang → Allow."))),
+        picker, h("div", { class: "controls" }, connect), ytRes, h("p", { class: "sf-help", text: yt.client ? "Google fayli saqlangan." : "" }));
+    }
+    const nv = nav(async () => { await next(); }, { skip: true });
+    const f = form(n(6) + "Instagram va YouTube statistikasi (ixtiyoriy)", "Bot hech qachon joylamaydi: bu ulanishlar faqat saytdagi statistika uchun. Qoralamalar Buffer orqali tayyorlanadi.",
+      flash, h("div", { class: "svc-grid" }, igBox, ytBox), nv.err, nv.row);
+    f.addEventListener("submit", nv.run);
+    return f;
+  }
+
+  async function doneStep() {
+    state = await api("/api/setup/state");
+    const acc = await api("/api/accounts");
     const v = state.values;
     const rows = [["Sayt paroli", v.DASHBOARD_PASSWORD.set, "o'rnatilgan"], ["Telegram bot", v.TELEGRAM_BOT_TOKEN.set && v.TELEGRAM_ALLOWED_USER_IDS.set, "kiritilgan"],
-      ["Buffer", v.BUFFER_API_KEY.set, "kiritilgan"], ["Claude", state.claude.installed && state.claude.logged_in, "tayyor"], ["Nutq modeli", state.model.ready, "tayyor"]];
+      ["Buffer", v.BUFFER_API_KEY.set, "kiritilgan"], ["GitHub", acc.github.connected || !!(acc.content && acc.content.remote), acc.github.connected ? `@${acc.github.login}` : "ulangan"],
+      ["Claude", acc.claude.installed && acc.claude.logged_in, "tayyor"], ["Nutq modeli", state.model.ready, "tayyor"],
+      ["Instagram statistikasi", acc.instagram.connected, "ulangan"], ["YouTube statistikasi", acc.youtube.connected, "ulangan"]];
     const start = h("button", { class: "btn primary", type: "button" }, firstRun ? "Boshlash" : "Saytga qaytish");
     start.addEventListener("click", () => { location.href = "/#/"; });
-    return h("div", { class: "setup-form" }, h("h2", { text: firstRun ? "6. Tayyor!" : "Holat" }),
+    return h("div", { class: "setup-form" }, h("h2", { text: firstRun ? n(8) + "Tayyor!" : "Holat" }),
       h("p", { class: "hint", text: (state.dry_run ? "Sinov rejimi yoqiq: Buffer qoralamalari haqiqatda yaratilmaydi, faqat yozib qo'yiladi. " : "Buffer qoralamalari haqiqatda yaratiladi. ")
-        + "Bot hech qachon o'zi joylamaydi — qoralama tayyor bo'lgach, tasdiqlab rejalashtirish sizda. O'zgarishlar saqlangach bot o'zi qayta ishga tushadi va Telegram'da sizga yozadi." }),
+        + "Bot hech qachon o'zi joylamaydi — qoralama tayyor bo'lgach, tasdiqlab rejalashtirish sizda. Kompyuter yonganda bot o'zi ishga tushadi." }),
       h("ul", { class: "checks" }, rows.map(([l, ok, word]) => h("li", { class: ok ? "ok" : "bad" }, h("span", { class: "mark", text: ok ? "✓" : "!" }), h("div", {}, h("b", { text: l }), h("span", { text: ok ? ` — ${word}` : " — hali sozlanmagan (keyinroq «Sozlamalar»da)" }))))),
       h("div", { class: "setup-nav" }, h("span"), start));
   }
+
   const page = h("div", { class: "setup-page" }, h("div", { class: "setup-head" }, brand(), themeButton()),
     h("h1", { class: "setup-title", text: firstRun ? "Sozlash" : "Sozlamalar" }),
     h("p", { class: "setup-sub", text: firstRun ? "Bir necha qadam — va bot sizning kompyuteringizda ishlay boshlaydi. Barcha kalitlar faqat shu kompyuterda saqlanadi." : "Istalgan qiymatni o'zgartiring. Saqlangan kalitlar yashirin ko'rinadi." }),
-    stepper, h("div", { class: "card setup-card" }, body));
+    firstRun ? null : updateCard(), stepper, h("div", { class: "card setup-card" }, body));
   if (firstRun) $app.replaceChildren(page);
-  else shell("settings", "Sozlamalar", "Kalitlar va ulanishlar", [], page);
+  else shell("settings", "Sozlamalar", "Kalitlar, akkauntlar va yangilanish", [], page);
   await draw();
 }
+
+function updateCard() {
+  const card = h("div", { class: "card update-card" }, h("div", { class: "update-row" }, h("span", { class: "si-mini" }, icon("refresh")), h("div", { class: "grow-text" }, h("b", { text: "Yangilanish" }), h("p", { class: "sf-help", text: "Tekshirilmoqda…" }))));
+  const fill = (st) => {
+    const text = card.querySelector(".grow-text p");
+    const row = card.querySelector(".update-row");
+    row.querySelector(".controls")?.remove();
+    const list = card.querySelector(".update-list");
+    list?.remove();
+    if (!st.available) {
+      text.textContent = st.reason === "offline" ? "Internet yo'q — keyinroq tekshiriladi." : st.reason === "no_repo" ? "Bu nusxa git orqali o'rnatilmagan — yangilanishni qo'lda oling." : "Sizda eng so'nggi versiya.";
+      const b = h("button", { class: "btn", type: "button" }, "Tekshirish");
+      b.addEventListener("click", async () => { b.disabled = true; try { fill(await api("/api/update?force=1")); } catch (e) { /* kept */ } b.disabled = false; });
+      row.append(h("div", { class: "controls" }, b));
+      return;
+    }
+    card.classList.add("has-update");
+    text.textContent = st.can_update ? `Yangilanish bor: ${st.behind} ta o'zgarish. Sozlamalaringiz, kalitlaringiz va reellaringizga tegilmaydi.`
+      : st.reason === "diverged" ? "Yangilanish bor, lekin bu papkada qo'lda saqlangan o'zgarishlar bor — avtomatik yangilab bo'lmaydi."
+      : "Yangilanish bor, lekin dastur fayllari qo'lda o'zgartirilgan — avtomatik yangilab bo'lmaydi.";
+    if (st.can_update) {
+      const b = h("button", { class: "btn primary", type: "button" }, "Yangilash");
+      b.addEventListener("click", async () => {
+        b.disabled = true; text.textContent = "Yangilanmoqda… (bir necha daqiqa)";
+        try { const r = await api("/api/update", { method: "POST", body: "{}" });
+          if (r.ok) { text.textContent = "Yangilandi! Xizmat qayta ishga tushmoqda — sahifa o'zi yangilanadi."; setTimeout(() => location.reload(), 9000); }
+          else { text.textContent = "Yangilab bo'lmadi. Keyinroq qayta urinib ko'ring."; b.disabled = false; } }
+        catch (e) { text.textContent = "Yangilab bo'lmadi. Keyinroq qayta urinib ko'ring."; b.disabled = false; }
+      });
+      row.append(h("div", { class: "controls" }, b));
+    }
+    if (st.commits.length) card.append(h("ul", { class: "update-list" }, st.commits.slice(0, 5).map((c) => h("li", { text: c.title }))));
+  };
+  api("/api/update").then(fill).catch(() => fill({ available: false, reason: "offline" }));
+  return card;
+}
+
+// ---------------------------------------------------------------- internet state (shown everywhere)
+const netBanner = h("div", { class: "net-banner", role: "status", hidden: true }, h("span", { class: "pulse" }), h("span", { text: "Internet yo'q — kutyapman. Ulanish tiklanishi bilan hammasi o'zi davom etadi." }));
+document.body.append(netBanner);
+async function checkNet() {
+  try { const r = await fetch("/api/net", { credentials: "same-origin" }); const d = await r.json(); netBanner.hidden = d.online !== false; }
+  catch (e) { netBanner.hidden = false; }
+}
+checkNet(); setInterval(checkNet, 20000);
 
 // ---------------------------------------------------------------- login
 function renderLogin(message) {
@@ -1002,7 +1270,7 @@ async function route() {
     else if (hash === "#/pipeline") await renderPipeline();
     else if (hash === "#/skills") await renderSkills();
     else if (hash === "#/repo") await renderRepo();
-    else if (hash === "#/settings") await renderSetup(false);
+    else if (hash.startsWith("#/settings")) await renderSetup(false, hash.slice(11).split("?")[0] || null);
     else await renderOverview();
   } catch (e) {
     if (e.message !== "login") $app.replaceChildren(h("div", { class: "login" }, h("div", { class: "card" }, brand(), h("h1", { text: "Ulanishda muammo" }), h("p", { text: "Server javob bermadi. Bir ozdan keyin sahifani yangilang." }))));
@@ -1010,7 +1278,7 @@ async function route() {
 }
 window.addEventListener("hashchange", route);
 setInterval(async () => {
-  if (openPop || document.visibilityState !== "visible" || document.querySelector(".login")) return;
+  if (openPop || document.visibilityState !== "visible" || document.querySelector(".login") || document.querySelector(".setup-page")) return;   // never wipe a form being filled
   silentRefresh = true;
   try { await route(); } finally { silentRefresh = false; }
 }, 60000);

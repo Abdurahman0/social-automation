@@ -1,8 +1,7 @@
 """Step 5-6: the approved reel goes to git (`reels/<date>-<topic>/`) and to Buffer as DRAFTS; later the story step.
 
-- git: video + the owner's cover + research file + script + source list, committed (only those paths) and pushed to
-  `main` when a remote exists (never force). Files over 50 MB go through Git LFS. Without a remote the commit stays
-  local and the site shows "kutilmoqda".
+- git: video + the owner's cover + research file + script + source list go to the user's OWN content repo
+  (socialauto/content_repo.py, Task 07) — never to the code repo. Files over 50 MB go through Git LFS.
 - Buffer: drafts for Instagram (reel), YouTube and LinkedIn with captions in the owner's style (style file learned
   from the owner's previous Buffer posts). Never scheduled or published: the owner approves and schedules in Buffer.
   Buffer fetches the video from a URL, so the files are served for a moment through the free quick tunnel.
@@ -14,18 +13,13 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
-import subprocess
 from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .buffer import BufferClient, instagram_reel_meta, story_meta, youtube_meta
 
 log = logging.getLogger(__name__)
-
-LFS_BYTES = 50 * 1024 * 1024
 
 CAPTION_SCHEMA: dict[str, Any] = {
     "type": "object", "additionalProperties": False,
@@ -44,64 +38,6 @@ STYLE_SCHEMA: dict[str, Any] = {
 }
 DEFAULT_STYLE = ("Uzbek (Latin). Short first line that repeats the hook with one number. 2-4 short paragraphs, plain "
                  "words, one question to the audience, then 5-8 hashtags (#suv #oqovasuv #Uzbekistan ...). No clickbait.")
-
-
-def git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    import os
-    env = dict(os.environ)
-    env["PATH"] = f"{repo / 'bin'}{os.pathsep}{env.get('PATH', '')}"      # git-lfs lives in ./bin (install_git_lfs.sh)
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=check, timeout=600, env=env)
-
-
-def has_remote(repo: Path) -> bool:
-    return bool(git(repo, "remote", check=False).stdout.strip())
-
-
-def lfs_available(repo: Path) -> bool:
-    return git(repo, "lfs", "version", check=False).returncode == 0
-
-
-@dataclass
-class GitResult:
-    folder: str
-    committed: bool
-    pushed: bool
-    lfs_files: list[str]
-    note: str
-
-
-def publish_git(repo: Path, reels_dir: Path, base: str, files: dict[str, Path], title: str) -> GitResult:
-    """Copy into reels/<base>/ and commit exactly those paths; push to main when a remote exists."""
-    dest = reels_dir / base
-    dest.mkdir(parents=True, exist_ok=True)
-    rel_paths, lfs = [], []
-    for name, src in files.items():
-        target = dest / name
-        shutil.copyfile(src, target)
-        rel = str(target.relative_to(repo))
-        rel_paths.append(rel)
-        if target.stat().st_size > LFS_BYTES:
-            if not lfs_available(repo):
-                raise RuntimeError("a file is over 50 MB and Git LFS is not installed (Linux: scripts/install_git_lfs.sh, macOS: brew install git-lfs, Windows: winget install GitHub.GitLFS)")
-            git(repo, "lfs", "track", rel)
-            lfs.append(rel)
-    if lfs:
-        rel_paths.append(".gitattributes")
-    git(repo, "add", "--", *rel_paths)
-    staged = git(repo, "diff", "--cached", "--name-only", "--", *rel_paths).stdout.strip()
-    committed = False
-    if staged:
-        git(repo, "commit", "-m", f"Reel: {title} ({base[:10]})", "--", *rel_paths)
-        committed = True
-    pushed, note = False, "GitHub ulanmagan: o'zgarish shu kompyuterda saqlandi (kutilmoqda)"
-    if has_remote(repo):
-        res = git(repo, "push", "origin", "HEAD:main", check=False)        # never --force
-        pushed = res.returncode == 0
-        if not pushed:                                                     # details to the log, not the UI (law 6)
-            logging.getLogger("socialauto.publish").warning("git push failed: %s", res.stderr.strip()[:300])
-        note = ("GitHub'ga yuklandi" if pushed else
-                "GitHub'ga yuklab bo'lmadi (ruxsat yoki internet yo'q): o'zgarish shu kompyuterda saqlandi")
-    return GitResult(str(dest.relative_to(repo)), committed, pushed, lfs, note)
 
 
 def learn_style(claude, buffer: BufferClient | None, style_file: Path) -> str:
@@ -191,5 +127,5 @@ def create_story_draft(buffer: BufferClient, cover: Path, link: str, text: str, 
         return buffer.create_draft(ig, text, None, image_url, story_meta(link, text), reminder=True)
 
 
-__all__ = ["publish_git", "learn_style", "write_captions", "create_drafts", "rename_drafts", "live_link",
+__all__ = ["learn_style", "write_captions", "create_drafts", "rename_drafts", "live_link",
            "create_story_draft", "GitResult", "json"]

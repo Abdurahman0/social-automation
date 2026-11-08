@@ -2,9 +2,30 @@
 
 [O'zbekcha](#ozbekcha) · [English](#english)
 
+### O'rnatish — bitta qator / Install — one line
+
+**Windows** (PowerShell'ni oching / open PowerShell):
+```powershell
+irm https://raw.githubusercontent.com/Abdurahman0/social-automation/main/install.ps1 | iex
+```
+
+**Linux / macOS** (Terminal):
+```bash
+curl -fsSL https://raw.githubusercontent.com/Abdurahman0/social-automation/main/install.sh | bash
+```
+
+GitHub akkaunti ham, parol ham kerak emas: repo ochiq, kod ochiq HTTPS orqali `~/social-automation`
+(Windows: `%USERPROFILE%\social-automation`) papkasiga yuklanadi; kerak bo'lsa Git o'zi o'rnatiladi. Keyin brauzerda
+Sozlash sahifasi ochiladi. / No GitHub account and no password needed: the repo is public; the code is cloned over
+public HTTPS into `~/social-automation` (Windows: `%USERPROFILE%\social-automation`), Git is installed if missing,
+then the Setup page opens in your browser.
+
 ---
 
 ## O'zbekcha
+
+> **Bu repoga faqat egasi yozadi.** O'zingizniki uchun fork qilishingiz shart emas — o'rnating va o'z GitHub'ingizni
+> ulang. Ilova bu repodan faqat yangilanish oladi; sizning reellaringiz sizning o'z GitHub'ingizga boradi.
 
 Bitta Telegram bot **sizning o'z ovozingiz** bilan **suv va oqova suv** mavzusida qisqa vertikal reellar tayyorlaydi
 (o'zbek tilida), har bir qadamda sizdan tasdiq so'raydi va tasdiqlangan reelni Instagram, YouTube va LinkedIn uchun
@@ -27,14 +48,14 @@ Hammasi **sizning kompyuteringizda** ishlaydi; kalitlar faqat shu yerda saqlanad
 
 **Linux / macOS**
 ```bash
-git clone git@github.com:Abdurahman0/social-automation.git
+git clone https://github.com/Abdurahman0/social-automation.git
 cd social-automation
 ./install.sh
 ```
 
 **Windows** (PowerShell)
 ```powershell
-git clone git@github.com:Abdurahman0/social-automation.git
+git clone https://github.com/Abdurahman0/social-automation.git
 cd social-automation
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
@@ -43,12 +64,27 @@ O'rnatuvchi: Python muhitini (`.venv`) va paketlarni, Remotion (video chizuvchi)
 modelini (rubaiSTT, ~800 MB, checksum bilan) o'rnatadi; fon xizmatini ro'yxatdan o'tkazadi (Linux: systemd, macOS:
 launchd, Windows: Task Scheduler) va brauzerda **http://localhost:8090/setup** sahifasini ochadi.
 
-### Sozlash sahifasi
-Birinchi ochilganda sayt sizni **Sozlash** sahifasiga olib boradi: 1) sayt paroli, 2) Telegram bot tokeni va ID'ingiz
-(«Tekshirish» botning nomini ko'rsatadi), 3) Buffer kaliti (ulangan kanallarni ko'rsatadi), 4) ixtiyoriy kalitlar
-(Meta, Pexels, Pixabay), 5) Claude va nutq modeli holati, 6) yakun. Kalitlar `.env` faylida faqat sizga ochiq holda
-saqlanadi va hech qachon to'liq ko'rsatilmaydi. Keyin istalgan qiymatni **Sozlamalar** sahifasida o'zgartirasiz — bot
-o'zi qayta ishga tushadi. Parol o'rnatilmaguncha sahifa faqat shu kompyuterning o'zidan ochiladi.
+### Sozlash sahifasi — hammasi saytning ichida, hammasi sizniki
+Birinchi ochilganda sayt sizni **Sozlash** sahifasiga olib boradi:
+1. sayt paroli;
+2. Telegram bot tokeni va ID'ingiz («Tekshirish» botning nomini ko'rsatadi);
+3. **Buffer** kaliti — sizning Buffer'ingizga ulangan Instagram, YouTube, LinkedIn kanallari nomi va rasmi bilan
+   ko'rinadi (qoralamalar shularga tayyorlanadi);
+4. **GitHub** — «GitHub'ni ulash»: sayt qisqa kod ko'rsatadi, siz github.com/login/device'da kiritasiz (parol bu
+   saytga yozilmaydi). Reellar sizning akkauntingizdagi yopiq `social-automation-content` reposiga yuklanadi (ilova
+   uni o'zi yaratadi). Muqobil: faqat shu repo uchun «Contents: read and write» huquqli fine-grained token;
+5. **Claude** — «Claude'ga kirish»: o'z Claude akkauntingiz bilan kirasiz, sahifa bergan kodni qo'yasiz. API kalit yo'q;
+6. **Statistika** (ixtiyoriy) — Instagram (o'z Meta ilovangiz bilan) va YouTube (o'z Google OAuth mijozingiz bilan,
+   faqat o'qish) ulanishi, qadamma-qadam ko'rsatma bilan;
+7. ixtiyoriy Pexels / Pixabay kalitlari; 8. yakun.
+
+Kalitlar va tokenlar faqat shu kompyuterda (`.env`, `secrets/`, faqat sizga ochiq), hech qachon to'liq ko'rsatilmaydi,
+git'ga va loglarga tushmaydi. Keyin istalgan qiymatni **Sozlamalar** sahifasida o'zgartirasiz — bot o'zi qayta ishga
+tushadi. Parol o'rnatilmaguncha sahifa faqat shu kompyuterning o'zidan ochiladi.
+
+| GitHub ulash (kompyuter) | Claude'ga kirish (telefon) | Statistika (planshet) |
+|---|---|---|
+| ![GitHub](docs/images/settings-4-github-code-desktop-dark.png) | ![Claude](docs/images/settings-5-claude-code-phone-light.png) | ![Statistika](docs/images/settings-6-stats-tablet-dark.png) |
 
 | Kompyuter (qorong'i) | Telefon (yorug') | Planshet |
 |---|---|---|
@@ -57,13 +93,21 @@ o'zi qayta ishga tushadi. Parol o'rnatilmaguncha sahifa faqat shu kompyuterning 
 Qo'lda sozlash ham mumkin: `.env.example` ni `.env` ga nusxalab to'ldiring (Linux/macOS: `chmod 600 .env`).
 
 ### Claude'ga kirish
-Terminalda `claude` deb yozing va o'z akkauntingiz bilan kiring (o'rnatilmagan bo'lsa:
-`npm install -g @anthropic-ai/claude-code`). Ssenariylar shu login orqali yoziladi. Agar Claude o'rnatilmagan yoki
+Sozlamalar → Claude → «Claude'ga kirish» (yoki terminalda `claude`). O'rnatilmagan bo'lsa:
+`npm install -g @anthropic-ai/claude-code`. Ssenariylar shu login orqali yoziladi. Agar Claude o'rnatilmagan yoki
 kirilmagan bo'lsa, bot Telegram'da bitta ogohlantirish yuboradi va kutadi — hech narsa buzilmaydi.
 
+### Har doim ishlaydi
+Kompyuter yonganda bot va sayt o'zi ishga tushadi (Linux: systemd + linger — hatto kirmasdan oldin; macOS: kirganda;
+Windows: administrator sifatida o'rnatilsa yonganda, aks holda kirganda). Internet bo'lmasa sayt «Internet yo'q —
+kutyapman» deydi, bot jim kutadi va ulanish tiklanishi bilan davom etadi.
+
 ### Yangilash
+Sozlamalar sahifasida egasi yangi versiya chiqarsa «Yangilanish bor» ko'rinadi — bitta «Yangilash» tugmasi (faqat
+fast-forward; `.env`, `secrets/`, `data/`, `config.local.toml` va kontent reposiga tegilmaydi; xizmat o'zi qayta
+ishga tushadi). Qo'lda:
 ```bash
-git pull
+git pull --ff-only
 ./install.sh            # Windows: powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
@@ -75,7 +119,9 @@ Fon xizmatlari o'chiriladi; papka, `.env` va ma'lumotlar qoladi (to'liq o'chiris
 
 ### Xavfsizlik
 - **Sinov rejimi** (`dry_run = true`) har bir yangi o'rnatishda yoqiq: Buffer qoralamalari ham haqiqatda yaratilmaydi,
-  faqat `data/dryrun_posts.json` ga yoziladi. O'chirish: `config.toml` → `dry_run = false`.
+  faqat `data/dryrun_posts.json` ga yoziladi. O'chirish: `config.local.toml` faylida `dry_run = false` (bu fayl
+  sizniki, git'ga tushmaydi va yangilanishga xalaqit bermaydi).
+- Reellar dastur kodi reposiga **hech qachon** yozilmaydi (himoya testi `tests/test_content_repo.py`).
 - Bot joylash, yuklash yoki rejalashtirish kodiga ega emas (himoya testi `tests/test_guards.py`).
 - Sir kalitlar faqat `.env` va `secrets/` da (git'ga tushmaydi), loglarga yozilmaydi.
 
@@ -84,6 +130,9 @@ Egasining qadamlari: [docs/OWNER_TODO.md](docs/OWNER_TODO.md) · qarorlar: [docs
 ---
 
 ## English
+
+> **Only the owner writes to this repo.** You don't need to fork it — install it and connect your own GitHub. The app
+> only downloads updates from here; your reels go to your own GitHub.
 
 One Telegram bot that makes short vertical reels **with your own voice** about **water and wastewater** (in Uzbek),
 asks you at every step, and prepares each approved reel as **Buffer drafts** for Instagram, YouTube and LinkedIn. A
@@ -110,19 +159,30 @@ launchd agent on macOS, a Task Scheduler task on Windows) and opens **http://loc
 is safe; it is also the updater. Options: `--no-service`, `--no-open`, `--uninstall` (Windows: `-NoService`,
 `-NoOpen`, `-Uninstall`).
 
-### Setup page
+### Setup page — everything inside the website, everything yours
 On first start every page leads to **Setup**: dashboard password → Telegram token and your user id (with a check that
-shows the bot's name) → Buffer key (shows your channels) → optional keys (Meta, Pexels, Pixabay) → Claude and speech
-model status → summary. Values are saved to the local `.env` (user-only permissions), shown back only masked, and sent
+shows the bot's name) → Buffer key (your Instagram / YouTube / LinkedIn channels with names and pictures) → **GitHub**
+(device flow: the page shows a short code you enter at github.com/login/device; reels go to your own private
+`social-automation-content` repo, created by the app; or a fine-grained token for that repo only) → **Claude** (log in
+to your own Claude account from the page; no API key) → **Statistics**, optional (Instagram with your own Meta app,
+YouTube with your own Google OAuth client, read-only) → optional Pexels / Pixabay → summary. Values are saved to the local `.env` (user-only permissions), shown back only masked, and sent
 only to the service they belong to. Change anything later on the **Settings** page; the bot restarts itself. Until a
 password exists, Setup only opens from this computer. The manual alternative is `.env.example` → `.env`.
 
 ### Claude login
-Type `claude` in a terminal and log in with your own account (`npm install -g @anthropic-ai/claude-code` if it is
+Settings → Claude → "Claude'ga kirish" (or type `claude` in a terminal) and log in with your own account (`npm install -g @anthropic-ai/claude-code` if it is
 missing). If Claude is missing or logged out, the bot sends one Telegram alert and waits; nothing crashes.
 
+### Always on
+Starts when the computer turns on (Linux: systemd user units + linger, even before login; macOS: at login; Windows: at
+boot when installed from an administrator PowerShell, otherwise at login). Without internet the site shows
+"Internet yo'q — kutyapman" and the bot waits quietly.
+
 ### Update / uninstall
-`git pull && ./install.sh` · `./install.sh --uninstall` (your folder, `.env` and data are kept).
+Settings shows "Yangilanish bor" when the owner pushed a new version: one button, fast-forward only, never touches
+`.env`, `secrets/`, `data/`, `config.local.toml` or your content repo, then restarts the services. By hand:
+`git pull --ff-only && ./install.sh`. Uninstall: `./install.sh --uninstall` (your folder, `.env` and data are kept).
+Your own settings (for example `dry_run = false`) go to `config.local.toml`, never into `config.toml`.
 
 ### Telegram commands
 `/new [topic]` start now · `/queue`, `/status` · `/stats` · `/pause`, `/resume` · `/lessons`, `/usage`.
@@ -137,6 +197,9 @@ socialauto/
   platforms/ youtube.py instagram.py             READ-ONLY statistics clients; tunnel.py dryrun.py
   runner.py                                      bot service: waits for the token, restarts on .env change, Claude alert
   env_store.py web/setup.py                      the Setup page's .env store and checks
+  content_repo.py                                the user's OWN content repo; refuses any push to the code repo
+  github_account.py claude_login.py web/accounts.py   GitHub (device flow), Claude login, Instagram/YouTube logins
+  updater.py netcheck.py                         fast-forward-only updates; "Internet yo'q — kutyapman"
   voice.py video/ analytics/                     owner voice, ffmpeg helpers, statistics
   web/  server.py static/                        the website (no build step)
 remotion/                                        the Remotion composition

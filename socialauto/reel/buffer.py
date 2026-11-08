@@ -48,6 +48,9 @@ Q_ORGS = "query { account { organizations { id name } } }"
 Q_CHANNELS = """query Channels($org: OrganizationId!) {
   channels(input: { organizationId: $org }) { id name displayName service isDisconnected }
 }"""
+Q_CHANNELS_VIEW = """query Channels($org: OrganizationId!) {
+  channels(input: { organizationId: $org }) { id name displayName service isDisconnected avatar }
+}"""
 Q_POSTS = """query Posts($org: OrganizationId!, $status: [PostStatus!], $channels: [ChannelId!], $after: String, $first: Int) {
   posts(after: $after, first: $first, input: { organizationId: $org, filter: { status: $status, channelIds: $channels } }) {
     pageInfo { endCursor hasNextPage }
@@ -135,6 +138,17 @@ class GraphBuffer:
 
     def channels(self) -> list[dict]:
         return [c for c in self.gql(Q_CHANNELS, {"org": self.org()})["channels"] if not c.get("isDisconnected")]
+
+    def channels_view(self) -> list[dict]:
+        """Channels with their avatar for the website (read-only). Falls back to the plain list if Buffer's schema
+        has no avatar field, so the drafts' own channel lookup is never affected."""
+        try:
+            data = self.gql(Q_CHANNELS_VIEW, {"org": self.org()})["channels"]
+        except BufferAuthError:
+            raise
+        except BufferError:
+            data = self.gql(Q_CHANNELS, {"org": self.org()})["channels"]
+        return [c for c in data if not c.get("isDisconnected")]
 
     def create_draft(self, channel: dict, text: str, video_url: str | None, image_url: str | None,
                      metadata: dict, reminder: bool = False) -> str:

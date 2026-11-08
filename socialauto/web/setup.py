@@ -54,7 +54,7 @@ class SetupChecks:
             return {"ok": False, "reason": "missing"}
         from ..reel.buffer import BufferAuthError, BufferError, GraphBuffer
         try:
-            channels = GraphBuffer(key, session=self.s).channels()
+            channels = GraphBuffer(key, session=self.s).channels_view()
         except BufferAuthError:
             return {"ok": False, "reason": "rejected"}
         except BufferError as exc:        # only a failed connection is "network"; anything Buffer answered is a refusal
@@ -62,8 +62,12 @@ class SetupChecks:
         except Exception:                 # noqa: BLE001
             return {"ok": False, "reason": "network"}
         names = {"instagram": "Instagram", "youtube": "YouTube", "linkedin": "LinkedIn"}
-        return {"ok": True, "channels": [{"service": names.get(c.get("service"), (c.get("service") or "").title()),
-                                          "name": c.get("displayName") or c.get("name") or ""} for c in channels]}
+        return {"ok": True, "connect_url": "https://publish.buffer.com/channels/connect",
+                "channels": [{"service": names.get(c.get("service"), (c.get("service") or "").title()),
+                              "kind": c.get("service") or "",
+                              "name": c.get("displayName") or c.get("name") or "",
+                              "avatar": c["avatar"] if str(c.get("avatar") or "").startswith("https://") else ""}
+                             for c in channels]}
 
     def claude(self) -> dict:
         """Is the Claude Code CLI installed and logged in on THIS computer (the user's own account)?"""

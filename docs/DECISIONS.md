@@ -147,3 +147,41 @@ Each can be changed; the config line or file is named.
   history is kept only in the local branch `local-history`. `proof/` is untracked and ignored.
 - **Reels push**: approved reels still go to `reels/<date>-<topic>/` in this repo (Task 04); now that a remote exists
   they reach the private GitHub repo. A clone without push rights keeps them locally and the website says so.
+
+## Task 07 — every user runs their own copy with their own accounts; the code repo is read-only
+- **Two repos.** Code repo (`origin`, the owner's `Abdurahman0/social-automation`): fetch + fast-forward only. Content
+  repo (`data/content-repo`, ignored by the code repo): reels go there and are pushed to the user's own
+  `<login>/social-automation-content` (private, created through the API after the GitHub login) or to a remote the
+  user set in `config.local.toml` (the owner uses SSH: `git@github.com:Abdurahman0/social-automation-content.git`).
+- **Hard guard** (`ContentRepo.guard`): before every content push the target is reduced to one canonical form
+  (`github.com/owner/name` for https/ssh/git@/credential URLs, a resolved path for local repos) and refused if it
+  equals the configured code repo, any remote of the code folder, or the code folder itself. Raised and logged, on
+  every computer (the owner's too). `git push` exists only in `content_repo.py` (a test checks this). Never `--force`.
+- **GitHub login:** OAuth app "Social Automation" (owner's account, device flow enabled; client id
+  `Ov23liS94MsnZzPLrzTA` in config.toml — public by design, no secret is needed for the device flow). Scope `repo`
+  (OAuth apps have nothing narrower that can create a private repo and push). The fallback fine-grained token can be
+  limited to the content repo with Contents read/write; such a token cannot create repos, so the page links to
+  github.com/new for that one repo. The token lives in `secrets/github.json` (0600 / user-only ACL) and reaches git
+  only through the environment of the one push command (a credential helper reads `$SA_GH_TOKEN`), never argv/config.
+- **Claude login on the website:** the site runs `claude auth login --claudeai` in a pseudo-terminal (pipes on
+  Windows) for this computer's Claude config dir, shows the sign-in link, passes the pasted code, then reads
+  `claude auth status` (email + plan shown). Tested against a throwaway config dir: link shown, a wrong code fails
+  cleanly, the real login is untouched.
+- **Instagram / YouTube** are read-only analytics logins (the bot never posts): Meta login with the user's own app
+  (redirect `…/api/accounts/instagram/callback`), Google login with the user's own "Desktop app" client (redirect to
+  the site root, loopback). The callback is authorised by a random single-use `state` (15 min), because the site's
+  SameSite=Strict cookie is not sent on a redirect from facebook.com / google.com. Drafts still go through Buffer;
+  the Buffer step lists the user's channels with names and avatars (falls back to the plain query if Buffer's schema
+  has no avatar field, so drafts are never affected).
+- **config.local.toml** (git-ignored) holds this computer's own settings (dry_run, content remote, YouTube channel id);
+  config.toml stays exactly as in the code repo, so updates are always a clean fast-forward.
+- **Updates:** `Updater` allows only fetch/rev-parse/rev-list/log/status/merge-base/diff and `merge --ff-only`.
+  Diverged history or hand-edited tracked files → refused with a plain reason, nothing changed. After an update:
+  pip / npm refresh only if their lists changed, `data/restart_request` restarts the bot (EnvWatcher), the website
+  exits with 75 and its service manager starts it again.
+- **Always on:** Linux user units + linger (start at boot, before login), `After=network-online.target`; the bot waits
+  for internet quietly (`netcheck.wait_until_online`) and polling retries forever; the site polls `/api/net` and shows
+  "Internet yo'q — kutyapman". Windows: the task registers with S4U + AtStartup when the installer runs elevated,
+  otherwise AtLogOn (and says so). macOS: LaunchAgent (at login; a LaunchDaemon would need root).
+- **Owner-only (GitHub sudo mode / 2FA):** making the code repo public, the `main` protection rule and the
+  collaborator check — in docs/OWNER_TODO.md §15, with the history scan done first.

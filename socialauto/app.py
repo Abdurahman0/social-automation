@@ -62,8 +62,10 @@ def instagram_stats(settings: Settings) -> GraphInstagramClient:
 
 
 def reel_places(settings: Settings) -> Places:
+    """reels/ lives in the user's own content repo (data/content-repo), never in the code repo (Task 07)."""
+    content = settings.resolve(settings.github.content_dir)
     return Places(settings.resolve(settings.reel.work_base), settings.resolve(settings.reel.exports),
-                  settings.resolve(settings.reel.research_dir), settings.resolve(settings.reel.reels_dir))
+                  settings.resolve(settings.reel.research_dir), content / settings.reel.reels_dir)
 
 
 def build_app(settings: Settings, *, claude=None, transcriber: Transcriber | None = None,
@@ -89,6 +91,9 @@ def build_app(settings: Settings, *, claude=None, transcriber: Transcriber | Non
         buffer = DryRunBuffer(DryRunLog(settings.dryrun_posts_path), clock) if settings.dry_run else (
             GraphBuffer(settings.buffer_api_key) if settings.buffer_api_key else None)
     places = reel_places(settings)
+    from .content_repo import ContentRepo
+    from .github_account import GitHubAccount
+    content = ContentRepo(settings, GitHubAccount(settings))
     if broll_providers is None:
         broll_providers = make_providers(tuple(settings.reel.broll_providers), settings.pexels_api_key,
                                          settings.pixabay_api_key)
@@ -100,5 +105,5 @@ def build_app(settings: Settings, *, claude=None, transcriber: Transcriber | Non
         public_files = make_public_files(settings.root)   # Buffer fetches the draft's video from a temporary link
     workflow = Workflow(settings, store, jobs, outbox, kv, transcriber, budget, lessons, clock, buffer=buffer,
                         buffer_stats=buffer_stats, reel_writer=writer, places=places, reel_renderer=reel_renderer,
-                        broll_providers=broll_providers, public_files=public_files)
+                        broll_providers=broll_providers, public_files=public_files, content=content)
     return App(settings, db, store, jobs, kv, outbox, lessons, budget, claude, workflow, clock)

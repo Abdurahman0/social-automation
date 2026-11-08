@@ -43,7 +43,7 @@ class Places:
     work_base: Path          # work/
     exports: Path            # exports/
     research: Path           # research/
-    reels: Path              # <repo>/reels/
+    reels: Path              # <content repo>/reels/ (never the code repo)
 
     def work(self, base: str) -> Path:
         return self.work_base / base

@@ -64,8 +64,13 @@ class Workflow:
     def __init__(self, settings: Settings, store: Store, jobs: JobQueue, outbox: Outbox, kv: KV,
                  transcriber: voice_mod.Transcriber, budget: Budget | None, lessons: Lessons | None,
                  clock: Callable[[], datetime], *, buffer=None, buffer_stats=None, reel_writer=None,
-                 places: naming.Places, reel_renderer: ReelRenderer, broll_providers=None, public_files=None):
+                 places: naming.Places, reel_renderer: ReelRenderer, broll_providers=None, public_files=None,
+                 content=None):
         self.settings = settings
+        if content is None:
+            from .content_repo import ContentRepo
+            content = ContentRepo(settings)
+        self.content = content                    # the user's OWN content repo; the code repo is never written
         self.store = store
         self.jobs = jobs
         self.outbox = outbox
@@ -216,7 +221,7 @@ class Workflow:
             return []
         old = reel["base"]
         new = naming.base_name(new_slot.astimezone(slots.zone(self.settings.schedule)).date(), old[11:])
-        done = naming.rename_all(self.places, old, new, self.settings.root)
+        done = naming.rename_all(self.places, old, new, self.content.path if self.content else None)
         fields: dict[str, Any] = {"base": new}
         if reel.get("research_file"):
             fields["research_file"] = str(self.places.research_file(new))
@@ -636,7 +641,7 @@ class Workflow:
             files["research.md"] = Path(reel["research_file"])
         if (work / "SOURCES.md").exists():
             files["SOURCES.md"] = work / "SOURCES.md"
-        gres = publish.publish_git(self.settings.root, self.places.reels, base, files, script["title"])
+        gres = self.content.publish(base, files, script["title"])      # the user's OWN content repo (Task 07)
         self.reels.upsert(video["id"], git_note=gres.note, git_folder=gres.folder)
         drafts = reel.get("drafts") or {}
         if self.buffer is not None and not drafts:

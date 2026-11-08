@@ -31,8 +31,8 @@ schedules himself. A website shows live statistics and analytics and the pipelin
     read `~/youtube-automation` and copy code from it into this repo.
 11. **Lessons:** every failure and its fix is recorded (lessons store) and fed into later generation prompts so
     the same mistake is never repeated.
-12. **Git:** commit in small steps with clear messages. Remote: `git@github.com:Abdurahman0/social-automation.git`
-    (private). Push to main, never force-push. `proof/`, `.env`, `secrets/`, `data/`, `logs/`, `work/`, `models/` never
+12. **Git:** commit in small steps with clear messages. Remote: `git@github.com:Abdurahman0/social-automation.git`.
+    Push to main, never force-push. Only the owner writes to this code repo; the app only fetches updates from it. `proof/`, `.env`, `secrets/`, `data/`, `logs/`, `work/`, `models/` never
     go to GitHub; the full pre-publication history stays only in the local branch `local-history`.
 13. Owner talks in Uzbek or English; Telegram texts to the owner are in Uzbek unless config says otherwise.
     Video content is in Uzbek by default (configurable, `[reel] language`; owner, Task 04).
@@ -45,3 +45,9 @@ schedules himself. A website shows live statistics and analytics and the pipelin
 16. **The bot NEVER makes a cover / thumbnail** (owner, 2026-11-08). After the owner approves the video, the bot asks
     for the owner's cover in Telegram and waits; the cover is used as is (only a format conversion if Buffer needs
     it, and the owner is told). No generated, fallback or burned-in cover of any kind.
+17. **Every user, own accounts; the code repo is read-only** (owner, 2026-11-08, Task 07). Each install uses its
+    user's own Telegram bot, Buffer, GitHub, Claude, Instagram and YouTube logins, all entered on the website and
+    stored only on that computer. Reels go to the user's OWN content repo (`data/content-repo` →
+    `<login>/social-automation-content`, private). The app never commits or pushes to the code repo: a hard guard
+    (`socialauto/content_repo.py`, test `tests/test_content_repo.py`) refuses it on every computer. Updates are
+    fetch + fast-forward only (`socialauto/updater.py`). This computer's own settings go to `config.local.toml`.

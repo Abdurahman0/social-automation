@@ -8,6 +8,7 @@ shows: titles, numbers, times and opaque keys - never tokens, file paths or plat
 from __future__ import annotations
 
 import hashlib
+import os
 import hmac
 import secrets
 import threading
@@ -72,11 +73,12 @@ def check_token(secret: bytes, password: str, token: str | None, now: float | No
 
 
 LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost"}
-SETUP_OPEN = ("/setup", "/static/", "/api/setup", "/api/session", "/favicon")
+SETUP_OPEN = ("/setup", "/static/", "/api/setup", "/api/session", "/api/net", "/favicon")
 
 
 def create_app(settings: Settings, db: Database | None = None, collector: Collector | None = None,
-               clock=None, claude_dir: Path | None = None, repo_dir: Path | None = None, checks=None) -> FastAPI:
+               clock=None, claude_dir: Path | None = None, repo_dir: Path | None = None, checks=None,
+               github=None, claude_login=None, accounts=None, updater=None, content=None, restart=None) -> FastAPI:
     db = db or Database(settings.db_path)
     db.migrate()
     kv, store = KV(db), Store(db)
@@ -93,6 +95,16 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
     env_path = settings.root / ".env"
     from .setup import SetupChecks
     checks = checks or SetupChecks(settings)
+    from ..claude_login import ClaudeLogin
+    from ..content_repo import ContentRepo
+    from ..github_account import GitHubAccount
+    from ..updater import Updater
+    from .accounts import Accounts
+    github = github or GitHubAccount(settings)
+    claude_login = claude_login or ClaudeLogin(settings)
+    accounts = accounts or Accounts(settings)
+    updater = updater or Updater(repo_dir or settings.root)
+    content = content or ContentRepo(settings, github)
 
     def password() -> str:
         """The dashboard password, read fresh from .env (the Setup page may have just set it)."""
@@ -356,9 +368,17 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
 
     @app.get("/api/repo")
     def repo(request: Request) -> dict:
+        """Task 07: the user's OWN content repo (where his reels go) and the read-only code repo (updates only)."""
         authed(request)
-        from .repo import status as repo_status
-        return repo_status(repo_dir or settings.root)
+        from .repo import never_pushed, status as repo_status
+        code_root = repo_dir or settings.root
+        st = content.status()
+        history = repo_status(content.path).get("history", []) if st["exists"] else []
+        code = repo_status(code_root)
+        return {"account": github.public(), "content": st, "history": history,
+                "code": {"repo": settings.github.code_repo, "is_repo": code.get("is_repo", False),
+                         "branch": code.get("branch", "main"), "url": f"https://github.com/{settings.github.code_repo}"},
+                "never": never_pushed(code_root)}
 
     # --- media --------------------------------------------------------------------------------------------
     @app.get("/media/thumb/{key}")
@@ -368,6 +388,134 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
         if not path or not Path(path).exists():
             raise HTTPException(status_code=404, detail="not_found")
         return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+
+    # --- Task 07: the user's own accounts, internet state, updates -----------------------------------------
+    from ..netcheck import online
+
+    @app.get("/api/net")
+    def net() -> dict:
+        return {"online": online()}
+
+    def guard(request: Request) -> None:
+        setup_guard(request)
+        if not password():
+            raise HTTPException(status_code=400, detail="password_first")
+
+    def gh_call(fn, *a):
+        from ..github_account import GitHubError
+        try:
+            return fn(*a)
+        except GitHubError as exc:
+            raise HTTPException(status_code=400, detail=exc.reason) from None
+
+    def acc_call(fn, *a):
+        from .accounts import AccountError
+        try:
+            return fn(*a)
+        except AccountError as exc:
+            raise HTTPException(status_code=400, detail=exc.reason) from None
+
+    @app.get("/api/accounts")
+    def accounts_view(request: Request) -> dict:
+        guard(request)
+        return {"github": github.public(), "claude": {**claude_login.status(), **claude_login.view()},
+                "instagram": accounts.instagram_view(), "youtube": accounts.youtube_view(),
+                "content": content.status()}
+
+    @app.post("/api/accounts/github/device")
+    def gh_device(request: Request) -> dict:
+        guard(request)
+        return gh_call(github.start_device)
+
+    @app.post("/api/accounts/github/poll")
+    def gh_poll(request: Request) -> dict:
+        guard(request)
+        res = github.poll_device()
+        return {**res, "account": github.public() if res["state"] == "done" else None}
+
+    @app.post("/api/accounts/github/token")
+    def gh_token(request: Request, body: dict = Body(...)) -> dict:
+        guard(request)
+        info = gh_call(github.use_token, str(body.get("token", "")))
+        return {"ok": True, "repo_missing": bool(info.get("repo_missing")), "account": github.public()}
+
+    @app.post("/api/accounts/github/disconnect")
+    def gh_disconnect(request: Request) -> dict:
+        guard(request)
+        github.disconnect()
+        return {"ok": True}
+
+    @app.post("/api/accounts/claude/start")
+    def claude_start(request: Request) -> dict:
+        guard(request)
+        return claude_login.start()
+
+    @app.post("/api/accounts/claude/code")
+    def claude_code(request: Request, body: dict = Body(...)) -> dict:
+        guard(request)
+        return {**claude_login.submit_code(str(body.get("code", ""))), **claude_login.status()}
+
+    @app.post("/api/accounts/instagram/start")
+    def ig_start(request: Request) -> dict:
+        guard(request)
+        return {"url": acc_call(accounts.instagram_start)}
+
+    @app.get("/api/accounts/instagram/callback")
+    def ig_callback(request: Request):
+        """Opened by Meta's redirect: authorised by the single-use state, not by the (SameSite=Strict) cookie."""
+        from fastapi.responses import RedirectResponse
+        q = request.query_params
+        if q.get("error") or not q.get("code"):
+            accounts.take_state(q.get("state", ""), "instagram")
+            return RedirectResponse("/#/settings/stats?r=ig_cancel", status_code=303)
+        try:
+            accounts.instagram_callback(q["code"], q.get("state", ""))
+        except Exception as exc:                          # noqa: BLE001
+            return RedirectResponse(f"/#/settings/stats?r=ig_{getattr(exc, 'reason', 'rejected')}", status_code=303)
+        return RedirectResponse("/#/settings/stats?r=ig_ok", status_code=303)
+
+    @app.post("/api/accounts/instagram/token")
+    def ig_token(request: Request, body: dict = Body(...)) -> dict:
+        guard(request)
+        return {"ok": True, **acc_call(accounts.instagram_token, str(body.get("token", "")))}
+
+    @app.post("/api/accounts/instagram/disconnect")
+    def ig_disconnect(request: Request) -> dict:
+        guard(request)
+        accounts.instagram_disconnect()
+        return {"ok": True}
+
+    @app.post("/api/accounts/youtube/client")
+    def yt_client(request: Request, body: dict = Body(...)) -> dict:
+        guard(request)
+        text = str(body.get("text", ""))
+        if len(text) > 20000:
+            raise HTTPException(status_code=400, detail="bad_client")
+        return acc_call(accounts.youtube_client, text)
+
+    @app.post("/api/accounts/youtube/start")
+    def yt_start(request: Request) -> dict:
+        guard(request)
+        return {"url": acc_call(accounts.youtube_start)}
+
+    @app.post("/api/accounts/youtube/disconnect")
+    def yt_disconnect(request: Request) -> dict:
+        guard(request)
+        accounts.youtube_disconnect()
+        return {"ok": True}
+
+    @app.get("/api/update")
+    def update_status(request: Request, force: int = 0) -> dict:
+        guard(request)
+        return updater.status(fetch=True, force=bool(force))
+
+    @app.post("/api/update")
+    def update_apply(request: Request) -> dict:
+        guard(request)
+        res = updater.apply()
+        if res.get("ok") and restart is not None:
+            threading.Timer(2.0, restart).start()           # reply first, then the service manager restarts us
+        return res
 
     # --- frontend -----------------------------------------------------------------------------------------
     # --- Setup ("Sozlash") and Settings ("Sozlamalar") ---------------------------------------------------------
@@ -438,7 +586,18 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
         return HTMLResponse((STATIC / "index.html").read_text(encoding="utf-8"))
 
     @app.get("/", response_class=HTMLResponse)
-    def index() -> HTMLResponse:
+    def index(request: Request):
+        q = request.query_params
+        if q.get("state") and accounts.owns_state(q["state"], "youtube"):   # Google's redirect back (Desktop client)
+            from fastapi.responses import RedirectResponse
+            if q.get("error") or not q.get("code"):
+                accounts.take_state(q["state"], "youtube")
+                return RedirectResponse("/#/settings/stats?r=yt_cancel", status_code=303)
+            try:
+                accounts.youtube_callback(q["code"], q["state"])
+            except Exception as exc:                      # noqa: BLE001
+                return RedirectResponse(f"/#/settings/stats?r=yt_{getattr(exc, 'reason', 'rejected')}", status_code=303)
+            return RedirectResponse("/#/settings/stats?r=yt_ok", status_code=303)
         return HTMLResponse((STATIC / "index.html").read_text(encoding="utf-8"))
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -448,7 +607,8 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
 
 def serve(settings: Settings) -> None:
     import uvicorn
-    uvicorn.run(create_app(settings), host=settings.web.host, port=settings.web.port, log_level="warning",
+    from ..runner import RESTART_CODE
+    uvicorn.run(create_app(settings, restart=lambda: os._exit(RESTART_CODE)), host=settings.web.host, port=settings.web.port, log_level="warning",
                 proxy_headers=False)
 
 

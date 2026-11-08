@@ -18,7 +18,7 @@ import json
 import logging
 import sys
 
-from .config import load_settings, set_config_value
+from .config import load_settings, set_local_value
 from .logging_setup import setup_logging
 
 log = logging.getLogger("socialauto")
@@ -34,13 +34,22 @@ def cmd_run(settings, config_path=None) -> int:
     env_path = settings.root / ".env"
     if not runner.ready(settings):            # first start: wait for the Setup page instead of exiting
         settings = runner.wait_for_token(lambda: load_settings(config_path))
-    watcher_start = runner.env_fingerprint(env_path)
     app = build_app(settings)
+    try:
+        moved = app.workflow.content.adopt_old_reels()     # Task 07: reels/ leaves the code folder
+        if moved:
+            log.info("Moved %d old reel folder(s) into the content repo", len(moved))
+    except Exception:                         # noqa: BLE001
+        log.exception("Could not move old reels into the content repo")
     collector = make_collector(settings, app.db, app.kv, app.clock)
     bot = TelegramBot(app, collector)
-    watcher = runner.EnvWatcher(env_path, bot.request_stop)
-    watcher.start_print = watcher_start
+    from .netcheck import wait_until_online
+    from .updater import RESTART_FILE
+    watcher = runner.EnvWatcher(env_path, bot.request_stop, also=(settings.root / RESTART_FILE,))
     watcher.start()
+    wait_until_online(log=log)                # after a boot the network may come later: wait quietly
+    if watcher.changed:                       # settings changed while waiting: start fresh with them
+        return runner.RESTART_CODE
     stop_claude = threading.Event()
 
     def claude_checks() -> None:              # one alert if Claude is missing / logged out; re-checked every 30 min
@@ -110,7 +119,7 @@ def cmd_youtube_auth(settings) -> None:
     token = settings.resolve(settings.youtube.token_file)
     authorize(secret, token)
     channel = YouTubeStats(secret, token).channel()
-    set_config_value(settings.root / "config.toml", "youtube", "expected_channel_id", json.dumps(channel["id"]))
+    set_local_value(settings.root, "youtube", "expected_channel_id", channel["id"])
     print(f"YouTube statistics connected (read-only): {channel['snippet']['title']}.")
 
 

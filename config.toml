@@ -46,7 +46,7 @@ language = "uz"                       # video language (uz | ru | en)
 work_base = "~/MediaBuffer/_work"     # work/<date>-<topic>/ — outside any cloud-synced folder
 exports = "~/MediaBuffer/exports"     # exports/<date>-<topic>_vN.mp4 (never overwritten)
 research_dir = "~/MediaBuffer/_work/research"
-reels_dir = "reels"                   # reels/<date>-<topic>/ inside this git repo
+reels_dir = "reels"                   # reels/<date>-<topic>/ inside the CONTENT repo (data/content-repo)
 stt_model = "models/rubaistt-medium-int8-ct2"   # rubaiSTT (= NavaiSTT v2), Uzbek Whisper-medium, Apache-2.0
 words_per_second = 2.2
 recent_posts = 30                     # research never repeats the last N posts
@@ -73,3 +73,13 @@ public_url = "http://localhost:8090"
 [analytics]
 refresh_minutes = 30           # account + video totals (cheap calls)
 reports_refresh_hours = 6      # YouTube Analytics day reports and Instagram insights
+
+[github]
+# Task 07. The code repo is only for downloading updates: the app never commits or pushes to it.
+# Reels go to YOUR OWN private content repo (created when you connect GitHub on the Settings page).
+code_repo = "Abdurahman0/social-automation"
+content_repo = "social-automation-content"
+content_dir = "data/content-repo"
+content_remote = ""            # optional: an SSH URL of your content repo (set in config.local.toml)
+oauth_client_id = "Ov23liS94MsnZzPLrzTA"   # public id of the "Social Automation" OAuth app (device flow; not a secret)  gitleaks:allow
+update_check_hours = 6

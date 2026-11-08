@@ -37,29 +37,20 @@ Kalit bo'lmasa: tadqiqot statistikasiz ishlaydi va qoralamalar yaratilmaydi.
 ## 5. Sinov rejimini o'chirish (Buffer ulangandan keyin)
 Sinov rejimida (`dry_run = true`) Buffer qoralamalari haqiqatda yaratilmaydi — faqat `data/dryrun_posts.json` ga
 yoziladi. Buffer'da haqiqiy **qoralamalar** paydo bo'lishini xohlasangiz:
-1. `config.toml` da: `dry_run = false`
+1. Loyiha papkasidagi `config.local.toml` fayliga (u sizniki, git'ga tushmaydi) eng yuqoriga shu qatorni yozing:
+   `dry_run = false`
 2. `systemctl --user restart social-automation`
 Shunda ham bot hech narsani rejalashtirmaydi yoki chiqarmaydi — qoralamani ochib, tasdiqlab rejalashtirish sizda.
 
 ## 6. YouTube statistikasi (ixtiyoriy, 15 daqiqa) — faqat o'qish
-Saytdagi YouTube raqamlari uchun. Ruxsat faqat **o'qish** uchun so'raladi (yuklash ruxsati yo'q).
-1. https://console.cloud.google.com → **New project** → nom: `social-automation` → **Create**.
-2. **APIs & Services → Library**: **"YouTube Data API v3"** → **Enable**; **"YouTube Analytics API"** → **Enable**.
-3. **OAuth consent screen** → **External** → app nomi, emailingiz → **Test users** ga o'z emailingiz → oxirida
-   **"Publish app" → "In production"** (aks holda ruxsat har 7 kunda tugaydi; "tasdiqlanmagan ilova" ogohlantirishida
-   **Advanced → Continue**).
-4. **Credentials → Create credentials → OAuth client ID** → **Desktop app** → **Create** → **Download JSON**.
-5. `mv ~/Downloads/client_secret_*.json secrets/youtube_client_secret.json && chmod 600 secrets/youtube_client_secret.json`
-6. `.venv/bin/python -m socialauto youtube-auth` → brauzerda kanalingizni tanlang → **Allow**.
+Saytda **Sozlamalar → Statistika → YouTube**: u yerda qadamma-qadam ko'rsatma bor (Google Cloud loyihasi, ikkita API'ni
+yoqish, «Desktop app» turidagi OAuth mijoz, JSON faylni yuklab olish). Faylni shu sahifada tanlang → «YouTube'ni
+ulash» → kanalingizni tanlang → Allow. Ruxsat faqat **o'qish** uchun.
 
 ## 7. Instagram statistikasi (ixtiyoriy, 15 daqiqa) — faqat o'qish
-1. Instagram → **Settings → Account type and tools → Switch to professional account** → **Creator** yoki **Business**,
-   va Facebook sahifangizga bog'lang.
-2. https://developers.facebook.com → **My Apps → Create app** (Business) → **App settings → Basic**: App ID va App Secret
-   ni saytdagi **Sozlamalar** → «Qo'shimcha» qadamiga qo'ying.
-3. https://developers.facebook.com/tools/explorer → ilovangiz → **Get User Access Token** → faqat shu ruxsatlar:
-   `instagram_basic`, `instagram_manage_insights`, `pages_show_list`, `pages_read_engagement` → **Generate** → nusxalang.
-4. `.venv/bin/python -m socialauto instagram-connect` → tokenni qo'ying. Token o'zi yangilanib turadi.
+Saytda **Sozlamalar → Statistika → Instagram**: Meta ilovangizning App ID va App Secret'ini qo'ying, sahifadagi
+«Valid OAuth Redirect URI» manzilini Meta ilovangizga qo'shing va «Instagram'ni ulash» ni bosing. Instagram akkaunt
+Business/Creator bo'lishi va Facebook sahifangizga bog'langan bo'lishi kerak.
 
 ## 8. Bepul video manbalari kalitlari (ixtiyoriy, 5 daqiqa)
 Hozir B-roll Wikimedia Commons'dan olinadi (kalitsiz, litsenziyasi yozib boriladi). Ko'proq vertikal videolar uchun:
@@ -89,8 +80,22 @@ Bot uslubingizni Buffer'dagi oldingi postlaringizdan o'rganadi. Tezroq o'rgatish
 Remotion yakka shaxs va 3 kishigacha kompaniyalar uchun bepul. Kanal 4+ xodimli kompaniyaniki bo'lsa, ayting
 (unda pullik litsenziya kerak; roziligingizsiz hech narsa sotib olinmaydi).
 
-## 14. GitHub repo — ✅ tayyor
-Repo: **https://github.com/Abdurahman0/social-automation** (yopiq / private). Har tasdiqlangan reel
-`reels/<sana>-<mavzu>/` ga (video, muqovangiz, tadqiqot, ssenariy, manbalar) shu repoga yuklanadi; 50 MB dan katta video
-Git LFS bilan. Ochiq (public) qilmoqchi bo'lsangiz: GitHub → Settings → Danger Zone → Change visibility. Ochiq
-qilsangiz, reellaringiz (ovozingiz bilan) ham hammaga ko'rinishini unutmang.
+## 14. GitHub — kod reposi va kontent reposi
+- **Kod reposi:** https://github.com/Abdurahman0/social-automation — faqat siz yozasiz; ilova (sizning kompyuteringizda
+  ham, do'stlaringiznikida ham) undan faqat yangilanish oladi, unga hech narsa yozmaydi.
+- **Kontent reposi:** https://github.com/Abdurahman0/social-automation-content (yopiq) — sizning reellaringiz shu
+  yerga boradi (SSH orqali, `config.local.toml` da sozlangan). Hech narsa qilishingiz shart emas. Xohlasangiz, saytda
+  Sozlamalar → GitHub'da akkauntingizni ham ulashingiz mumkin (rasmingiz va havolalar ko'rinadi).
+
+## 15. Kod reposini ochiq (public) qilish va himoyalash (5 daqiqa) — ⚠️ siz qilasiz
+GitHub bu sozlamalar uchun sizdan 2FA kodini so'raydi (sudo rejimi), shuning uchun ularni men qila olmayman.
+Tarix tekshirildi: sir, shaxsiy yo'l, reel/video/ovozingiz, `proof/` va joylash kodi yo'q (`docs/TASK_07_REPORT.md`).
+1. **Hamkorlar yo'qligini tekshiring:** repo → **Settings → Collaborators** → «You haven't invited any collaborators
+   yet» deb turishi kerak. Kimdir bo'lsa — **Remove**.
+2. **Ochiq qilish:** **Settings → General** → eng pastda **Danger Zone → Change visibility → Change to public** →
+   ogohlantirishlarni o'qib tasdiqlang → repo nomini yozing → 2FA kodi.
+3. **main'ni himoyalash** (ochiq bo'lgach bepul): **Settings → Branches → Add classic branch protection rule** →
+   *Branch name pattern*: `main` → «Allow force pushes» va «Allow deletions» **belgilanmagan** holda qoldiring →
+   **Create**. (Boshqa hech narsa shart emas — siz odatdagidek push qilaverasiz, faqat force-push va o'chirish yopiladi.)
+4. Bilib qo'ying: ochiq repoda commitlar muallifi sifatida kompyuteringizdagi git sozlamasidagi ism va email
+   ko'rinadi (bu odatiy holat; xohlasangiz, kelgusi commitlar uchun GitHub'ning «noreply» emailini qo'yish mumkin).

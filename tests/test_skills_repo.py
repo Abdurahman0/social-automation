@@ -191,4 +191,6 @@ def test_api_requires_login_and_returns_friendly_data(app, settings, clock, clau
     sk = client.get("/api/skills").json()
     assert sk["total"] == 4 and "used_note" in sk         # project skills come from the repo dir here
     rp = client.get("/api/repo").json()
-    assert rp["is_repo"] and rp["branch"] == "main" and not rp["connected"]
+    assert rp["code"]["is_repo"] and rp["code"]["branch"] == "main" and rp["code"]["repo"] == "Abdurahman0/social-automation"
+    assert rp["account"]["connected"] is False and rp["content"]["exists"] is False and rp["never"]
+    assert "token" not in str(rp["account"]).lower()
