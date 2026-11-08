@@ -392,7 +392,7 @@ function brand() {
   const mark = h("div", { class: "brand-mark" });
   const svg = s("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "#1a1505", "stroke-width": "2.6", "stroke-linecap": "round", "stroke-linejoin": "round" });
   svg.append(s("path", { d: "M4 17 L10 11 L14 14 L20 7" })); mark.append(svg);
-  return h("div", { class: "brand" }, mark, h("div", {}, "Social Automation", h("small", { text: "Reels → Buffer qoralamalari" })));
+  return h("div", { class: "brand" }, mark, h("div", {}, "Social Automation", h("small", { text: "Reels · Buffer" })));
 }
 function shell(active, title, sub, controls, body) {
   const nav = (cls) => h("nav", { class: cls, "aria-label": "Bo'limlar" },
@@ -839,7 +839,7 @@ async function renderSetup(firstRun) {
   const draw = async () => {
     stepper.replaceChildren(...SETUP_STEPS.map((s, i) => {
       const li = h("li", { class: i < step ? "done" : i === step ? "now" : "" }, h("span", { class: "si" }, icon(i < step ? "check" : s.icon)), h("span", { class: "sl", text: s.label }));
-      if (!firstRun || i < step) { li.classList.add("go"); li.tabIndex = 0; li.addEventListener("click", () => { if (i === 0 && !firstRun) return; step = i; draw(); }); }
+      if (!firstRun || i < step) { li.classList.add("go"); li.tabIndex = 0; li.addEventListener("click", () => { step = i; draw(); }); }
       return li;
     }));
     body.replaceChildren(await stepView(SETUP_STEPS[step].key));
@@ -849,7 +849,7 @@ async function renderSetup(firstRun) {
   const nav = (onNext, { skip = false, label = "Davom etish" } = {}) => {
     const err = h("div", { class: "err", role: "alert" });
     const go = h("button", { class: "btn primary", type: "submit" }, label);
-    const row = h("div", { class: "setup-nav" }, step > (firstRun ? 1 : 1) ? (() => { const b = h("button", { class: "btn", type: "button" }, "Orqaga"); b.addEventListener("click", () => { step -= 1; draw(); }); return b; })() : h("span"),
+    const row = h("div", { class: "setup-nav" }, step > (firstRun ? 1 : 0) ? (() => { const b = h("button", { class: "btn", type: "button" }, "Orqaga"); b.addEventListener("click", () => { step -= 1; draw(); }); return b; })() : h("span"),
       h("div", { class: "controls" }, skip ? (() => { const b = h("button", { class: "btn", type: "button" }, "Keyinroq"); b.addEventListener("click", next); return b; })() : null, go));
     return { row, err, go, run: async (e) => { e && e.preventDefault(); err.textContent = ""; go.disabled = true; try { await onNext(); } catch (ex) { err.textContent = reasonText(ex.message); } go.disabled = false; } };
   };
