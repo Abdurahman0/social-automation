@@ -62,6 +62,8 @@ const ICONS = {
   flag: "M4 22V4M4 4h12l-2 4 2 4H4",
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z",
   cloud: "M7 18a5 5 0 1 1 .9-9.9A6 6 0 0 1 19 10a4 4 0 0 1 0 8z",
+  monitor: "M3 4h18v12H3zM8 20h8M12 16v4",
+  close: "M6 6l12 12M18 6 6 18",
   cloudOff: "M3 3l18 18M8.5 8.4A5 5 0 0 0 7 18h10M15.6 7.1A6 6 0 0 1 19 10a4 4 0 0 1 1.7 7.6",
 };
 function icon(name) {
@@ -115,15 +117,251 @@ async function api(path, opts = {}) {
   return data;
 }
 
-// ---------------------------------------------------------------- theme (dark / light)
-function applyTheme(theme) { document.documentElement.dataset.theme = theme; }
-applyTheme(localStorage.getItem("sa_theme") || (window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"));
-function themeButton() {
-  const sun = icon("sun"); sun.setAttribute("class", "sun");
-  const moon = icon("moon"); moon.setAttribute("class", "moon");
-  const b = h("button", { class: "btn icon theme-btn", type: "button", "aria-label": "Yorug' / qorong'i rejim", title: "Yorug' / qorong'i rejim" }, sun, moon);
-  b.addEventListener("click", () => { const next = document.documentElement.dataset.theme === "light" ? "dark" : "light"; localStorage.setItem("sa_theme", next); applyTheme(next); route(); });
+// ---------------------------------------------------------------- theme: mode + colour palette + the wave (Task 08)
+// <head> already put data-mode / data-theme / data-palette on <html> before first paint (no flash). This keeps it in
+// sync, saves the choice (localStorage sa_theme = light|dark|system, sa_palette) and plays the wave on every change.
+const PALETTES = [
+  { key: "oltin", name: "Oltin" }, { key: "okean", name: "Okean" }, { key: "zumrad", name: "Zumrad" },
+  { key: "lola", name: "Lola" }, { key: "binafsha", name: "Binafsha" }, { key: "shafaq", name: "Shafaq" },
+];
+const MODES = [{ key: "light", name: "Yorug'", icon: "sun" }, { key: "dark", name: "Qorong'i", icon: "moon" }, { key: "system", name: "Tizim", icon: "monitor" }];
+const WAVE_MS = 720;
+const WAVE_EASE = "cubic-bezier(.4, .15, .2, 1)";   // soft ease-out: the ripple gathers, then washes out with a long gentle settle
+const osLight = window.matchMedia ? matchMedia("(prefers-color-scheme: light)") : { matches: false, addEventListener() {} };
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode: the choice lives for this page only */ } },
+};
+function savedTheme() {
+  const m = store.get("sa_theme"), p = store.get("sa_palette");
+  return { mode: MODES.some((x) => x.key === m) ? m : "system", palette: PALETTES.some((x) => x.key === p) ? p : "oltin" };
+}
+function resolveMode(mode) { return mode === "system" ? (osLight.matches ? "light" : "dark") : mode; }
+function currentTheme() { const r = document.documentElement.dataset; return { mode: r.mode || "system", palette: r.palette || "oltin", theme: r.theme || "dark" }; }
+function paletteName(key) { return (PALETTES.find((p) => p.key === key) || PALETTES[0]).name; }
+
+function applyTheme({ mode, palette }) {
+  const r = document.documentElement, theme = resolveMode(mode);
+  r.dataset.mode = mode; r.dataset.theme = theme; r.dataset.palette = palette;
+  document.querySelectorAll(".sw-dot").forEach((d) => { d.dataset.theme = theme; });
+  document.querySelectorAll("[data-mode-opt]").forEach((b) => { b.setAttribute("aria-checked", String(b.dataset.modeOpt === mode)); });
+  document.querySelectorAll("[data-palette-opt]").forEach((b) => { b.setAttribute("aria-checked", String(b.dataset.paletteOpt === palette)); });
+  document.querySelectorAll(".theme-btn .tb-name").forEach((n) => { n.textContent = paletteName(palette); });
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", getComputedStyle(r).getPropertyValue("--bg").trim() || "#0f1014");
+  window.dispatchEvent(new CustomEvent("sa-themechange", { detail: { mode, palette, theme } }));
+}
+applyTheme(savedTheme());
+
+// The wave. One at a time: a new click finishes the running wave at once and starts again from the new point.
+let wave = null;
+function originOf(el) {
+  if (!el || !el.isConnected) return null;
+  const r = el.getBoundingClientRect();
+  if (!r.width && !r.height) return null;
+  return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+}
+function farthestCorner(pt) {
+  const w = document.documentElement.clientWidth, hgt = window.innerHeight;
+  return Math.ceil(Math.hypot(Math.max(pt.x, w - pt.x), Math.max(pt.y, hgt - pt.y))) + 2;
+}
+function waveRing(pt) {   // a thin glowing crest in the NEW accent, riding just inside the edge of the circle
+  const ring = h("div", { class: "wave-ring", "aria-hidden": "true" });
+  ring.style.setProperty("--wx", `${pt.x}px`); ring.style.setProperty("--wy", `${pt.y}px`);
+  document.body.append(ring);
+  return ring;
+}
+function animateRing(ring, R) {
+  return ring.animate([{ "--wave-r": "0px", opacity: 1 }, { opacity: 1, offset: 0.62 }, { "--wave-r": `${R}px`, opacity: 0 }],
+    { duration: WAVE_MS, easing: WAVE_EASE, fill: "forwards" });
+}
+function transitionTheme(next, pt) {
+  if (wave) wave.finish();
+  const now = currentTheme();
+  if (now.palette === next.palette && now.theme === resolveMode(next.mode)) { applyTheme(next); return; }   // nothing to see
+  const root = document.documentElement;
+  const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce || !pt) {                       // reduced motion / OS switch: a short cross-fade only (or instant)
+    if (!document.startViewTransition) { applyTheme(next); return; }
+    root.classList.add("vt-fade");
+    let over = false;
+    const t = document.startViewTransition(() => applyTheme(next));
+    const done = () => { if (over) return; over = true; root.classList.remove("vt-fade"); if (wave === w) wave = null; };
+    const w = { finish() { t.skipTransition(); done(); } };
+    wave = w;
+    t.finished.then(done, done);
+    return;
+  }
+  const R = farthestCorner(pt);
+  if (document.startViewTransition) {
+    let ring = null, over = false;
+    root.classList.add("vt-wave");
+    const anims = [];
+    const t = document.startViewTransition(() => { applyTheme(next); ring = waveRing(pt); });
+    const done = () => {
+      if (over) return; over = true;
+      anims.forEach((a) => { try { a.cancel(); } catch (e) { /* already gone */ } });
+      if (ring) ring.remove();
+      root.classList.remove("vt-wave");
+      if (wave === w) wave = null;
+    };
+    const w = { finish() { try { t.skipTransition(); } catch (e) { /* already finished */ } done(); } };
+    wave = w;
+    t.ready.then(() => {
+      if (over) return;
+      anims.push(root.animate({ clipPath: [`circle(0px at ${pt.x}px ${pt.y}px)`, `circle(${R}px at ${pt.x}px ${pt.y}px)`] },
+        { duration: WAVE_MS, easing: WAVE_EASE, pseudoElement: "::view-transition-new(root)" }));
+      if (ring) anims.push(animateRing(ring, R));
+    }, done);
+    t.finished.then(done, done);
+    return;
+  }
+  // Fallback (no View Transitions): a circle of the new background grows from the same point, the theme switches
+  // underneath while it covers the page, then the circle fades away. No jump, no flash.
+  const probe = h("div", { "data-theme": resolveMode(next.mode), "data-palette": next.palette, hidden: true });
+  document.body.append(probe);
+  const cs = getComputedStyle(probe);
+  const bg = cs.getPropertyValue("--bg").trim(), accent = cs.getPropertyValue("--accent").trim();
+  probe.remove();
+  const fill = h("div", { class: "wave-fill", "aria-hidden": "true" });
+  fill.style.background = bg;
+  document.body.append(fill);
+  const ring = waveRing(pt);
+  ring.style.setProperty("--accent", accent);
+  let over = false, switched = false;
+  const sw = () => { if (!switched) { switched = true; applyTheme(next); } };
+  const grow = fill.animate({ clipPath: [`circle(0px at ${pt.x}px ${pt.y}px)`, `circle(${R}px at ${pt.x}px ${pt.y}px)`] },
+    { duration: WAVE_MS, easing: WAVE_EASE, fill: "forwards" });
+  const ringAnim = animateRing(ring, R);
+  const done = () => { if (over) return; over = true; grow.cancel(); ringAnim.cancel(); fill.remove(); ring.remove(); if (wave === w) wave = null; };
+  const w = { finish() { sw(); done(); } };
+  wave = w;
+  grow.finished.then(() => {
+    if (over) return;
+    sw();
+    fill.animate({ opacity: [1, 0] }, { duration: 260, easing: "ease-out", fill: "forwards" }).finished.then(done, done);
+  }, () => {});
+}
+function setTheme(change, originEl) {
+  const next = { ...savedTheme(), ...currentModePalette(), ...change };
+  store.set("sa_theme", next.mode); store.set("sa_palette", next.palette);
+  transitionTheme(next, originEl ? originOf(originEl) : null);
+}
+function currentModePalette() { const c = currentTheme(); return { mode: c.mode, palette: c.palette }; }
+osLight.addEventListener("change", () => { if (currentTheme().mode === "system") transitionTheme(currentModePalette(), null); });   // "Tizim" follows the OS live
+window.addEventListener("storage", (e) => { if (e.key === "sa_theme" || e.key === "sa_palette") transitionTheme(savedTheme(), null); });   // another tab
+
+// While a View Transition runs, Chrome hit-tests every tap to <html> (the page is only a picture). A tap then finishes
+// the running wave at once and is handed to the real control under the finger, so a second swatch starts a new wave.
+let tapAfterWave = null;
+document.addEventListener("pointerdown", (e) => {
+  if (!wave || e.target !== document.documentElement) return;
+  wave.finish();
+  let el = document.elementFromPoint(e.clientX, e.clientY);
+  if (!el || el === document.documentElement) {
+    el = openPop && [...openPop.querySelectorAll("button")].find((b) => { const r = b.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; });
+  }
+  const target = el && el !== document.documentElement ? el.closest("button, a, [tabindex]") || el : null;
+  if (!target) return;
+  e.stopImmediatePropagation();               // not an "outside" tap: keep the popover open
+  tapAfterWave = target;
+}, true);
+document.addEventListener("click", (e) => {
+  if (!tapAfterWave) return;
+  const t = tapAfterWave; tapAfterWave = null;
+  if (e.target === t || t.contains(e.target)) return;   // the browser already delivered it
+  e.stopImmediatePropagation(); e.preventDefault();
+  if (t.focus) t.focus({ preventScroll: true });
+  t.click();
+}, true);
+
+// The handmade picker: anchored popover on tablet/desktop, a bottom sheet on the phone.
+function themeButton({ wide = false } = {}) {
+  const ico = h("span", { class: "tb-ico" });
+  MODES.forEach((m) => { const i = icon(m.icon); i.setAttribute("class", `m-${m.key}`); ico.append(i); });
+  ico.append(h("span", { class: "tb-dot" }));
+  const b = h("button", { class: `btn theme-btn${wide ? " wide" : " icon"}`, type: "button", "aria-haspopup": "dialog", "aria-expanded": "false",
+    "data-popper": "1", "aria-label": "Mavzu va rang", title: "Mavzu va rang" }, ico,
+    wide ? h("span", { class: "tb-text" }, "Mavzu", h("span", { class: "tb-name", text: paletteName(currentTheme().palette) })) : null);
+  b.addEventListener("click", () => {
+    if (openPop && openPop._owner === b) { closePop(true); return; }
+    openThemePicker(b);
+  });
   return b;
+}
+function rovingKeys(group, cols) {
+  group.addEventListener("keydown", (e) => {
+    const items = [...group.querySelectorAll("[role=radio]")]; const i = items.indexOf(document.activeElement);
+    if (i < 0) return;
+    const c = typeof cols === "function" ? cols() : cols;
+    const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: c, ArrowUp: -c, Home: -i, End: items.length - 1 - i }[e.key];
+    if (step === undefined) return;
+    e.preventDefault();
+    const j = Math.max(0, Math.min(items.length - 1, i + step));
+    items.forEach((it, k) => it.setAttribute("tabindex", k === j ? "0" : "-1"));
+    items[j].focus();
+  });
+}
+function openThemePicker(btn) {
+  closePop();
+  const sheet = window.matchMedia && matchMedia("(max-width: 720px)").matches;
+  const now = currentTheme();
+  const close = h("button", { class: "btn icon tp-close", type: "button", "aria-label": "Yopish" }, icon("close"));
+  const modes = h("div", { class: "seg", role: "radiogroup", "aria-label": "Rejim" }, MODES.map((m) => {
+    const ic = h("span", { class: "seg-ico" }, icon(m.icon));
+    const b = h("button", { class: "seg-opt", type: "button", role: "radio", "data-mode-opt": m.key, "aria-checked": String(m.key === now.mode),
+      tabindex: m.key === now.mode ? "0" : "-1" }, ic, h("span", { text: m.name }));
+    b.addEventListener("click", () => setTheme({ mode: m.key }, ic));
+    return b;
+  }));
+  const swatches = h("div", { class: "swatches", role: "radiogroup", "aria-label": "Rang" }, PALETTES.map((p) => {
+    const dot = h("span", { class: "sw-dot", "data-theme": now.theme, "data-palette": p.key });
+    const check = icon("check"); check.setAttribute("class", "sw-check");
+    const b = h("button", { class: "sw", type: "button", role: "radio", "data-palette-opt": p.key, "aria-checked": String(p.key === now.palette),
+      tabindex: p.key === now.palette ? "0" : "-1" }, dot, h("span", { class: "sw-name", text: p.name }), check);
+    b.addEventListener("click", () => setTheme({ palette: p.key }, dot));
+    return b;
+  }));
+  rovingKeys(modes, 1);
+  rovingKeys(swatches, () => { const it = [...swatches.children]; const top = it[0].offsetTop; return Math.max(1, it.filter((x) => x.offsetTop === top).length); });
+  const panel = h("div", { class: "theme-pop", role: "dialog", "aria-modal": sheet ? "true" : null, "aria-labelledby": "tp-title" },
+    h("div", { class: "tp-head" }, h("div", {}, h("b", { id: "tp-title", text: "Mavzu" }), h("p", { text: "Rejim va rangni tanlang — saqlanib qoladi." })), close),
+    h("div", { class: "tp-label", text: "Rejim" }), modes,
+    h("div", { class: "tp-label", text: "Rang" }), swatches);
+  const layer = h("div", { class: `theme-layer ${sheet ? "sheet" : "anchored"}`, "data-popper": "1" });
+  if (sheet) { const backdrop = h("div", { class: "tp-backdrop" }); backdrop.addEventListener("click", () => closePop(true)); layer.append(backdrop); }
+  layer.append(panel);
+  document.body.append(layer);
+  const place = () => {
+    if (sheet || !btn.isConnected) return;
+    const r = btn.getBoundingClientRect(), pw = panel.offsetWidth, ph = panel.offsetHeight, vw = document.documentElement.clientWidth;
+    let top = r.bottom + 8;
+    if (top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 8);
+    let left = r.right - pw;
+    if (left < 8) left = r.left;
+    left = Math.max(8, Math.min(left, vw - pw - 8));
+    panel.style.top = `${Math.round(top)}px`; panel.style.left = `${Math.round(left)}px`;
+  };
+  place();
+  window.addEventListener("resize", place); window.addEventListener("scroll", place, { passive: true });
+  close.addEventListener("click", () => closePop(true));
+  panel.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.stopPropagation(); closePop(true); return; }
+    if (e.key === "Tab" && sheet) {          // the sheet is modal: Tab cycles inside it
+      const f = [close, modes.querySelector('[tabindex="0"]'), swatches.querySelector('[tabindex="0"]')];
+      const i = f.indexOf(document.activeElement);
+      if (i >= 0) { e.preventDefault(); f[(i + (e.shiftKey ? f.length - 1 : 1)) % f.length].focus(); }
+    }
+  });
+  panel.addEventListener("focusout", (e) => { if (!sheet && e.relatedTarget && !panel.contains(e.relatedTarget) && e.relatedTarget !== btn) closePop(); });
+  layer._owner = btn;
+  layer._onClose = (returnFocus) => {
+    window.removeEventListener("resize", place); window.removeEventListener("scroll", place);
+    btn.setAttribute("aria-expanded", "false");
+    if (returnFocus && btn.isConnected) btn.focus();
+  };
+  openPop = layer; btn.setAttribute("aria-expanded", "true");
+  (swatches.querySelector('[aria-checked="true"]') || swatches.firstChild).focus({ preventScroll: true });
 }
 
 // ---------------------------------------------------------------- tooltip
@@ -143,9 +381,9 @@ window.addEventListener("scroll", hideTip, { passive: true });
 // ---------------------------------------------------------------- handmade controls
 let openPop = null;
 let silentRefresh = false;
-function closePop() { if (openPop) { openPop.remove(); openPop = null; } }
+function closePop(returnFocus = false) { if (!openPop) return; const p = openPop; openPop = null; p.remove(); if (p._onClose) p._onClose(returnFocus); }
 document.addEventListener("pointerdown", (e) => { if (openPop && !openPop.contains(e.target) && !e.target.closest("[data-popper]")) closePop(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePop(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePop(true); });
 
 function Select({ label, options, value, onChange, align = "right" }) {
   const wrap = h("div", { class: "dd" });
@@ -390,7 +628,7 @@ const ROUTES = [
 ];
 function brand() {
   const mark = h("div", { class: "brand-mark" });
-  const svg = s("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "#1a1505", "stroke-width": "2.6", "stroke-linecap": "round", "stroke-linejoin": "round" });
+  const svg = s("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2.6", "stroke-linecap": "round", "stroke-linejoin": "round" });
   svg.append(s("path", { d: "M4 17 L10 11 L14 14 L20 7" })); mark.append(svg);
   return h("div", { class: "brand" }, mark, h("div", {}, "Social Automation", h("small", { text: "Reels · Buffer" })));
 }
@@ -399,7 +637,7 @@ function shell(active, title, sub, controls, body) {
     ROUTES.map((r) => h("a", { href: r.hash, "aria-current": r.key === active ? "page" : null }, icon(r.icon), h("span", { text: r.label }))));
   const logout = h("button", { class: "btn", type: "button" }, icon("logout"), "Chiqish");
   logout.addEventListener("click", async () => { await api("/api/logout", { method: "POST" }).catch(() => {}); renderLogin(); });
-  const side = h("aside", { class: "side" }, brand(), nav("nav"), h("div", { class: "side-foot" }, themeButton(), logout));
+  const side = h("aside", { class: "side" }, brand(), nav("nav"), h("div", { class: "side-foot" }, themeButton({ wide: true }), logout));
   const mobileBrand = h("div", { class: "mobile-brand", style: "justify-content:space-between" }, brand(), themeButton());
   const main = h("main", { class: "main" }, mobileBrand,
     h("div", { class: "topbar" }, h("div", {}, h("h1", { text: title }), sub ? h("div", { class: "sub" }, sub) : null), h("div", { class: "controls" }, controls)),
@@ -1246,7 +1484,7 @@ function renderLogin(message) {
     try { await api("/api/login", { method: "POST", body: JSON.stringify({ password: input.value }) }); route(); }
     catch (ex) { err.textContent = ex.status === 429 ? "Juda ko'p urinish. 10 daqiqadan keyin qayta urinib ko'ring." : "Parol noto'g'ri."; submit.disabled = false; input.select(); }
   });
-  $app.replaceChildren(h("div", { class: "login" }, h("div", { class: "card" }, brand(), h("h1", { text: "Xush kelibsiz" }), h("p", { text: "YouTube va Instagram statistikangizni ko'rish uchun parolni kiriting." }), form)));
+  $app.replaceChildren(h("div", { class: "login" }, h("div", { class: "corner-theme" }, themeButton()), h("div", { class: "card" }, brand(), h("h1", { text: "Xush kelibsiz" }), h("p", { text: "YouTube va Instagram statistikangizni ko'rish uchun parolni kiriting." }), form)));
   input.focus();
 }
 

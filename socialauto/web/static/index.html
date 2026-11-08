@@ -6,6 +6,20 @@
 <meta name="theme-color" content="#111216">
 <title>Social Automation — statistika</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23181a20'/%3E%3Cpath d='M18 44 L30 30 L38 37 L48 22' stroke='%23ffd633' stroke-width='6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<meta name="color-scheme" content="dark light">
+<script>
+/* Theme before first paint (Task 08): no flash of the wrong mode or colour on reload. app.js keeps it in sync. */
+(function () {
+  var r = document.documentElement, m = "system", p = "oltin";
+  try { m = localStorage.getItem("sa_theme") || m; p = localStorage.getItem("sa_palette") || p; } catch (e) {}
+  if (m !== "light" && m !== "dark") m = "system";
+  if (["oltin", "okean", "zumrad", "lola", "binafsha", "shafaq"].indexOf(p) < 0) p = "oltin";
+  var light = window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches;
+  r.setAttribute("data-mode", m);
+  r.setAttribute("data-theme", m === "system" ? (light ? "light" : "dark") : m);
+  r.setAttribute("data-palette", p);
+})();
+</script>
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
