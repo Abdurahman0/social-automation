@@ -195,3 +195,31 @@ Each can be changed; the config line or file is named.
 - Making the repo public, the `main` protection and the collaborator check need the owner's 2FA ("sudo mode") on
   GitHub — even authorising our own OAuth app for API use asks for it — so they are an owner step (OWNER_TODO §15),
   with `scripts/history_scan.sh` (clean) run first and `scripts/verify_public.sh` to prove anonymous access after.
+
+## Task 08 — colour themes and the wave (2026-11-09)
+- **Mode + palette are two separate choices.** `sa_theme` = `light | dark | system` (old saved `light`/`dark` keep
+  working), `sa_palette` = `oltin` (default, the original yellow) / `okean` / `zumrad` / `lola` / `binafsha` / `shafaq`.
+  Default mode is **Tizim** (it was "follow the OS when nothing is saved" before too). An inline script in
+  `index.html` `<head>` sets `data-mode`, `data-theme` (resolved) and `data-palette` on `<html>` before the stylesheet,
+  so a reload never flashes the wrong theme.
+- **Tokens:** one block per palette x mode with the FULL token set, selected by attributes only
+  (`[data-theme][data-palette]`), so a swatch can preview its own palette and the fallback wave can read the new
+  `--bg` from a hidden probe. Oltin keeps the old values exactly. The other palettes tint every neutral (bg,
+  surfaces, hairline, text) towards their hue; contrast (AA 4.5 for text and accent text, 3 for chart lines and
+  status colours) is tested from the CSS in `tests/test_themes.py`. YouTube / Instagram colours are the same on every
+  palette (recognisable); only the "Jami" line follows the palette's secondary text.
+- **The wave:** View Transitions with a `clip-path: circle()` on `::view-transition-new(root)` from the centre of the
+  clicked swatch dot / mode icon to the farthest corner, 720 ms, `cubic-bezier(.4, .15, .2, 1)` (a gentle gather, then
+  a long soft ease-out; a sharper ease-out covered ~95 % of the screen in the first half and read as a flash, not a
+  wave). The crest is a fixed overlay inside the new view (radial gradient on a registered `--wave-r`) so it rides
+  just inside the circle's edge and fades out. Charts use `var(--yt)` etc. so they re-colour with no re-render; the
+  switch no longer calls `route()`.
+- **Second tap during a wave:** Chrome hit-tests every tap to `<html>` while a View Transition runs, even with
+  `pointer-events: none` on `::view-transition`. A capture-phase handler finishes the running wave and hands the tap
+  to the real control under the finger, so a second swatch starts a new wave from its own point and the popover
+  stays open.
+- **Fallback** (no View Transitions): a fixed circle of the new `--bg` grows (`clip-path`), the theme switches
+  underneath, the circle fades in 260 ms. **Reduced motion:** a 180 ms cross-fade (View Transitions) or instant.
+  "Tizim" follows OS changes live (cross-fade, no wave: there is no clicked point).
+- **Proof** `scripts/theme_check.py` (56 checks). Playwright's own video recorder needs an extra download, so the
+  GIF is built from frames of the frozen wave every 36 ms with the system ffmpeg (sharper and deterministic).
