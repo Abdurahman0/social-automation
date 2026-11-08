@@ -20,7 +20,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$RepoUrl = 'https://github.com/Abdurahman0/social-automation.git'
+$RepoUrl = if ($env:SA_REPO_URL) { $env:SA_REPO_URL } else { 'https://github.com/Abdurahman0/social-automation.git' }   # SA_REPO_URL: a mirror (tests)
 
 # --- bootstrap: started as `irm ... | iex` (no file on disk yet) -> get the code anonymously, then run the real
 # installer from it. `return`, never `exit`, here: exit would close the user's PowerShell window.

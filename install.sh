@@ -13,7 +13,7 @@
 # Messages are in Uzbek, then English. Nothing here prints a token or a password.
 set -euo pipefail
 
-REPO_URL="https://github.com/Abdurahman0/social-automation.git"
+REPO_URL="${SA_REPO_URL:-https://github.com/Abdurahman0/social-automation.git}"   # SA_REPO_URL: a mirror (tests)
 
 bootstrap() {   # run from `curl | bash`: get the code first (anonymously), then run the real installer from it
   local dir="${SA_DIR:-$HOME/social-automation}"
@@ -38,6 +38,7 @@ bootstrap() {   # run from `curl | bash`: get the code first (anonymously), then
   fi
   # The owner's repo is read-only for everyone else: this copy gets no push address at all.
   git -C "$dir" remote set-url --push origin "no-push:the-code-repo-is-read-only"
+  if [ -n "${SA_BOOTSTRAP_DRYRUN:-}" ]; then echo "  [OK] cloned anonymously; next: $dir/install.sh"; exit 0; fi
   exec bash "$dir/install.sh" "$@"
 }
 
