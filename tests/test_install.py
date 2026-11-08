@@ -33,7 +33,7 @@ def test_no_owner_paths_in_tracked_files():
         if f.suffix in (".png", ".jpg", ".jpeg", ".wav", ".mp4", ".ico", ".woff2"):
             continue
         text = f.read_text(encoding="utf-8", errors="ignore")
-        if home in text or user in text.lower() or "Desktop/social-automation" in text:
+        if home in text or user in text.lower() or "Desktop" + "/social-automation" in text:
             bad.append(str(f.relative_to(ROOT)))
     assert bad == []
 
