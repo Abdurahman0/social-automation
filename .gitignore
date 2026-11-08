@@ -1,0 +1,37 @@
+# Secrets (law 7): never commit
+.env
+.env.*
+!.env.example
+secrets/
+client_secret*.json
+token*.json
+*.pem
+*.key
+
+# Runtime data
+/data/
+/logs/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+/bin
+
+# Generated media and local proof (proof/ stays on this computer, never on GitHub)
+/proof/
+/work/
+*.wav
+
+# Models (large binaries, copied from the owner's machine)
+/models
+*.onnx
+/assets/music/*
+!/assets/music/README.md
+
+# Python / tools
+.venv
+__pycache__/
+*.py[cod]
+.pytest_cache/
+node_modules
+!tests/fixtures/sample_voice_*.wav

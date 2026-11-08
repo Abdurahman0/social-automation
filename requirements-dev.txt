@@ -1,0 +1,5 @@
+-r requirements.txt
+pytest>=8
+httpx>=0.27
+playwright>=1.48     # dashboard screenshots; drives the installed Google Chrome (no browser download)
+kokoro-onnx==0.4.7         # ONLY to make the test fixture voice (tests/fixtures/sample_voice_*.wav)

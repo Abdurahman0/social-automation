@@ -1,0 +1,75 @@
+# Social Automation settings. Secrets are NOT here: they live in .env and secrets/ (see .env.example).
+# Change the niche with ONE line: [content] niche.
+
+# Owner law 15: the bot NEVER publishes or schedules anything; it only creates Buffer drafts and a story draft.
+# dry_run = true: even the Buffer drafts are not created for real — they are only written to data/dryrun_posts.json.
+dry_run = true
+# Language of Telegram texts to the owner ("uz" or "en").
+owner_language = "uz"
+
+[content]
+niche = "water and wastewater in Uzbekistan and the world"   # change the topic area with this one line
+audience = "people in Uzbekistan who care about water, utilities and the environment"
+
+[schedule]
+timezone = "Asia/Tashkent"
+slot_times = ["19:00"]    # the planned publish date/time of each reel (files are named by it; you schedule in Buffer)
+# The bot starts the next research when the next free date is this close and nothing is in the pipeline.
+propose_lead_hours = 30
+# An approved video needs at least this many minutes before its slot (else the next slot is used).
+min_lead_minutes = 30
+
+[claude]
+binary = "claude"
+config_dir = "~/.claude"  # account 1 (the default Claude Code login). Never ~/.claude-youtube.
+model = ""                # empty = the CLI default
+effort = "medium"
+timeout_seconds = 600
+min_interval_seconds = 5
+limit_backoff_minutes = 60
+
+[video]
+music_dir = "assets/music"            # royalty-free music files; without them a soft bed is synthesized
+telegram_max_mb = 48
+
+[voice]
+# Law 14: the narration is always the owner's own recording sent to the Telegram bot (never TTS).
+whisper_model = "base"        # faster-whisper model (tiny | base | small); runs locally on the CPU
+whisper_compute = "int8"
+max_download_mb = 20          # Telegram Bot API download limit
+target_lufs = -14
+min_coverage = 0.75           # share of the script's words that must be heard, else the owner is asked
+reminder_hours = 3            # one reminder this long before the slot when no voice arrived
+
+[reel]
+language = "uz"                       # video language (uz | ru | en)
+work_base = "~/MediaBuffer/_work"     # work/<date>-<topic>/ — outside any cloud-synced folder
+exports = "~/MediaBuffer/exports"     # exports/<date>-<topic>_vN.mp4 (never overwritten)
+research_dir = "~/MediaBuffer/_work/research"
+reels_dir = "reels"                   # reels/<date>-<topic>/ inside this git repo
+stt_model = "models/rubaistt-medium-int8-ct2"   # rubaiSTT (= NavaiSTT v2), Uzbek Whisper-medium, Apache-2.0
+words_per_second = 2.2
+recent_posts = 30                     # research never repeats the last N posts
+broll_providers = ["pexels", "pixabay", "commons"]   # pexels/pixabay only when their free keys are in .env
+remotion_concurrency = 1           # one Chrome tab: fits the 3 GB cap with the bot
+music_volume_db = -20
+live_check_minutes = 15
+
+[youtube]
+# Read-only statistics (scopes youtube.readonly + yt-analytics.readonly). The bot never uploads.
+client_secret_file = "secrets/youtube_client_secret.json"
+token_file = "secrets/youtube_token.json"
+expected_channel_id = ""  # filled by `python -m socialauto youtube-auth`
+
+[instagram]
+graph_version = "v27.0"
+token_file = "secrets/instagram.json"   # read-only statistics; written by `python -m socialauto instagram-connect`
+
+[web]
+host = "127.0.0.1"
+port = 8090
+public_url = "http://localhost:8090"
+
+[analytics]
+refresh_minutes = 30           # account + video totals (cheap calls)
+reports_refresh_hours = 6      # YouTube Analytics day reports and Instagram insights
