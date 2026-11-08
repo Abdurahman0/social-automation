@@ -87,15 +87,20 @@ Remotion yakka shaxs va 3 kishigacha kompaniyalar uchun bepul. Kanal 4+ xodimli 
   yerga boradi (SSH orqali, `config.local.toml` da sozlangan). Hech narsa qilishingiz shart emas. Xohlasangiz, saytda
   Sozlamalar → GitHub'da akkauntingizni ham ulashingiz mumkin (rasmingiz va havolalar ko'rinadi).
 
-## 15. Kod reposini ochiq (public) qilish va himoyalash (5 daqiqa) — ⚠️ siz qilasiz
-GitHub bu sozlamalar uchun sizdan 2FA kodini so'raydi (sudo rejimi), shuning uchun ularni men qila olmayman.
-Tarix tekshirildi: sir, shaxsiy yo'l, reel/video/ovozingiz, `proof/` va joylash kodi yo'q (`docs/TASK_07_REPORT.md`).
-1. **Hamkorlar yo'qligini tekshiring:** repo → **Settings → Collaborators** → «You haven't invited any collaborators
-   yet» deb turishi kerak. Kimdir bo'lsa — **Remove**.
-2. **Ochiq qilish:** **Settings → General** → eng pastda **Danger Zone → Change visibility → Change to public** →
-   ogohlantirishlarni o'qib tasdiqlang → repo nomini yozing → 2FA kodi.
-3. **main'ni himoyalash** (ochiq bo'lgach bepul): **Settings → Branches → Add classic branch protection rule** →
-   *Branch name pattern*: `main` → «Allow force pushes» va «Allow deletions» **belgilanmagan** holda qoldiring →
-   **Create**. (Boshqa hech narsa shart emas — siz odatdagidek push qilaverasiz, faqat force-push va o'chirish yopiladi.)
-4. Bilib qo'ying: ochiq repoda commitlar muallifi sifatida kompyuteringizdagi git sozlamasidagi ism va email
-   ko'rinadi (bu odatiy holat; xohlasangiz, kelgusi commitlar uchun GitHub'ning «noreply» emailini qo'yish mumkin).
+## 15. Kod reposini OCHIQ (public) qilish va himoyalash (3 daqiqa) — ⚠️ MAJBURIY, faqat siz qila olasiz
+**Nega:** repo hozir yopiq. Shuning uchun Windows'da `git clone` sizdan GitHub login so'radi; do'stlaringizdan ham
+so'raydi. Ochiq qilingach hech kimdan login so'ralmaydi. Siz roziligingizni bergansiz; men to'xtagan joy — GitHub bu
+uchta sozlama uchun sizning **2FA kodingizni** so'raydi (sudo rejimi), uni men kirita olmayman va aylanib o'tmayman.
+Tarix to'liq tekshirildi va toza: sir, shaxsiy yo'l, reel/video/ovozingiz, `proof/`, joylash kodi yo'q
+(`scripts/history_scan.sh`, natija `docs/TASK_07_REPORT.md` da).
+1. https://github.com/Abdurahman0/social-automation/settings → eng pastda **Danger Zone → Change visibility →
+   Change to public** → ogohlantirishlarni tasdiqlang → repo nomini yozing → **2FA kodi**.
+2. **Settings → Collaborators** → «You haven't invited any collaborators yet» bo'lishi kerak (kimdir bo'lsa — Remove).
+3. **Settings → Branches → Add classic branch protection rule** → *Branch name pattern*: `main` → «Allow force
+   pushes» va «Allow deletions» **belgilanmagan** qolsin → **Create**. (Siz odatdagidek push qilaverasiz.)
+4. Tekshirish (terminalda, loyiha papkasida): `scripts/verify_public.sh` → oxirida
+   «RESULT: public — anyone can install without a GitHub login» chiqishi kerak.
+5. Endi Windows'da shu bitta qator yetadi (PowerShell'ni oching):
+   `irm https://raw.githubusercontent.com/Abdurahman0/social-automation/main/install.ps1 | iex`
+
+Bilib qo'ying: ochiq repoda commitlar muallifi sifatida kompyuteringizdagi git sozlamasidagi ism va email ko'rinadi.

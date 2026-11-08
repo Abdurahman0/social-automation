@@ -185,3 +185,13 @@ Each can be changed; the config line or file is named.
   otherwise AtLogOn (and says so). macOS: LaunchAgent (at login; a LaunchDaemon would need root).
 - **Owner-only (GitHub sudo mode / 2FA):** making the code repo public, the `main` protection rule and the
   collaborator check — in docs/OWNER_TODO.md §15, with the history scan done first.
+- **§7 addendum — no login to get the code.** The owner's Windows `git clone` asked for his login only because the
+  repo was private. One-line installers (`irm …/install.ps1 | iex`, `curl -fsSL …/install.sh | bash`) bootstrap when
+  there is no project folder yet: install Git if missing (winget / Homebrew or Command Line Tools / apt-dnf-pacman),
+  clone over public HTTPS with `credential.helper=` and no terminal prompt (no Git Credential Manager window), set the
+  push URL of `origin` to `no-push:the-code-repo-is-read-only`, then run the real installer from the clone. The
+  PowerShell bootstrap uses `return`, never `exit` (exit would close the user's window under `iex`). The updater
+  fetches with `credential.helper=` too. `SA_REPO_URL` / `SA_DIR` / `SA_BOOTSTRAP_DRYRUN` exist for mirrors and tests.
+- Making the repo public, the `main` protection and the collaborator check need the owner's 2FA ("sudo mode") on
+  GitHub — even authorising our own OAuth app for API use asks for it — so they are an owner step (OWNER_TODO §15),
+  with `scripts/history_scan.sh` (clean) run first and `scripts/verify_public.sh` to prove anonymous access after.

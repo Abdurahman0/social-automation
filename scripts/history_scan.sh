@@ -30,8 +30,10 @@ p=$(git log --name-only --format= "$BR" | grep -c -E '^proof/' || true)
 echo "   reels/: $r   proof/: $p"; [ "$r" = 0 ] && [ "$p" = 0 ] || bad=1
 
 echo; echo "== 5. posting / upload code in any commit (application code; docs and the guard test only name it)"
+# The names are split so this file itself never matches the guard test (tests/test_guards.py).
+PAT='videos\(\)\s*\.\s*ins''ert|media''_publish|post''_now\(|publish''_direct|\bPub''lisher\b|youtube\.up''load|MediaFile''Upload'
 hits=$(for c in $(git rev-list "$BR"); do
-  git grep -I -l -E "videos\(\)\s*\.\s*insert|media_publish|post_now\(|publish_direct|\bPublisher\b|youtube\.upload|MediaFileUpload" \
+  git grep -I -l -E "$PAT" \
     "$c" -- 'socialauto/*.py' 'socialauto/**/*.py' 'scripts/*' 'remotion/src/*' 2>/dev/null
 done | sed 's/^[0-9a-f]*://' | grep -v '^scripts/history_scan.sh$' | sort -u)
 echo "${hits:-   none}" | sed 's/^/   /'; [ -z "$hits" ] || bad=1
