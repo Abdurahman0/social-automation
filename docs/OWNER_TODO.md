@@ -89,7 +89,8 @@ Bot uslubingizni Buffer'dagi oldingi postlaringizdan o'rganadi. Tezroq o'rgatish
 Remotion yakka shaxs va 3 kishigacha kompaniyalar uchun bepul. Kanal 4+ xodimli kompaniyaniki bo'lsa, ayting
 (unda pullik litsenziya kerak; roziligingizsiz hech narsa sotib olinmaydi).
 
-## 14. GitHub repo
-Bo'sh repo oching va havolasini yuboring. Har tasdiqlangan reel `reels/<sana>-<mavzu>/` ga (video, muqovangiz,
-tadqiqot, ssenariy, manbalar) yuklanadi; 50 MB dan katta video Git LFS bilan. Repo ulanguncha bular shu kompyuterda
-saqlanadi va saytda "kutilmoqda" deb ko'rinadi.
+## 14. GitHub repo — ✅ tayyor
+Repo: **https://github.com/Abdurahman0/social-automation** (yopiq / private). Har tasdiqlangan reel
+`reels/<sana>-<mavzu>/` ga (video, muqovangiz, tadqiqot, ssenariy, manbalar) shu repoga yuklanadi; 50 MB dan katta video
+Git LFS bilan. Ochiq (public) qilmoqchi bo'lsangiz: GitHub → Settings → Danger Zone → Change visibility. Ochiq
+qilsangiz, reellaringiz (ovozingiz bilan) ham hammaga ko'rinishini unutmang.

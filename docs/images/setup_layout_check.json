@@ -1,0 +1,380 @@
+{
+  "setup-1-password-phone-dark": {
+    "docWidth": 390,
+    "viewport": 390,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-2-telegram-phone-dark": {
+    "docWidth": 390,
+    "viewport": 390,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-3-buffer-phone-dark": {
+    "docWidth": 390,
+    "viewport": 390,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-4-extra-phone-dark": {
+    "docWidth": 390,
+    "viewport": 390,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-5-claude-phone-dark": {
+    "docWidth": 390,
+    "viewport": 390,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-6-done-phone-dark": {
+    "docWidth": 390,
+    "viewport": 390,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "settings-phone-dark": {
+    "docWidth": 390,
+    "viewport": 390,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-1-password-phone-light": {
+    "docWidth": 390,
+    "viewport": 390,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-2-telegram-phone-light": {
+    "docWidth": 390,
+    "viewport": 390,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-3-buffer-phone-light": {
+    "docWidth": 390,
+    "viewport": 390,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-4-extra-phone-light": {
+    "docWidth": 390,
+    "viewport": 390,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-5-claude-phone-light": {
+    "docWidth": 390,
+    "viewport": 390,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-6-done-phone-light": {
+    "docWidth": 390,
+    "viewport": 390,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "settings-phone-light": {
+    "docWidth": 390,
+    "viewport": 390,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-1-password-tablet-dark": {
+    "docWidth": 820,
+    "viewport": 820,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-2-telegram-tablet-dark": {
+    "docWidth": 820,
+    "viewport": 820,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-3-buffer-tablet-dark": {
+    "docWidth": 820,
+    "viewport": 820,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-4-extra-tablet-dark": {
+    "docWidth": 820,
+    "viewport": 820,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-5-claude-tablet-dark": {
+    "docWidth": 820,
+    "viewport": 820,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-6-done-tablet-dark": {
+    "docWidth": 820,
+    "viewport": 820,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "settings-tablet-dark": {
+    "docWidth": 820,
+    "viewport": 820,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-1-password-tablet-light": {
+    "docWidth": 820,
+    "viewport": 820,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-2-telegram-tablet-light": {
+    "docWidth": 820,
+    "viewport": 820,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-3-buffer-tablet-light": {
+    "docWidth": 820,
+    "viewport": 820,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-4-extra-tablet-light": {
+    "docWidth": 820,
+    "viewport": 820,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-5-claude-tablet-light": {
+    "docWidth": 820,
+    "viewport": 820,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-6-done-tablet-light": {
+    "docWidth": 820,
+    "viewport": 820,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "settings-tablet-light": {
+    "docWidth": 820,
+    "viewport": 820,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-1-password-desktop-dark": {
+    "docWidth": 1440,
+    "viewport": 1440,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-2-telegram-desktop-dark": {
+    "docWidth": 1440,
+    "viewport": 1440,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-3-buffer-desktop-dark": {
+    "docWidth": 1440,
+    "viewport": 1440,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-4-extra-desktop-dark": {
+    "docWidth": 1440,
+    "viewport": 1440,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-5-claude-desktop-dark": {
+    "docWidth": 1440,
+    "viewport": 1440,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-6-done-desktop-dark": {
+    "docWidth": 1440,
+    "viewport": 1440,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "settings-desktop-dark": {
+    "docWidth": 1440,
+    "viewport": 1440,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-1-password-desktop-light": {
+    "docWidth": 1440,
+    "viewport": 1440,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-2-telegram-desktop-light": {
+    "docWidth": 1440,
+    "viewport": 1440,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-3-buffer-desktop-light": {
+    "docWidth": 1440,
+    "viewport": 1440,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-4-extra-desktop-light": {
+    "docWidth": 1440,
+    "viewport": 1440,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-5-claude-desktop-light": {
+    "docWidth": 1440,
+    "viewport": 1440,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "setup-6-done-desktop-light": {
+    "docWidth": 1440,
+    "viewport": 1440,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  },
+  "settings-desktop-light": {
+    "docWidth": 1440,
+    "viewport": 1440,
+    "offenders": [],
+    "overlaps": 0,
+    "lowContrast": [],
+    "console_errors": [],
+    "ok": true
+  }
+}
