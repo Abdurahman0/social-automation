@@ -118,7 +118,7 @@ class GraphBuffer:
             raise BufferError(f"HTTP {r.status_code}: not JSON") from exc
         for err in body.get("errors") or []:
             code = (err.get("extensions") or {}).get("code", "")
-            if code in ("UNAUTHORIZED", "FORBIDDEN"):
+            if code in ("UNAUTHENTICATED", "UNAUTHORIZED", "FORBIDDEN"):       # Buffer says UNAUTHENTICATED for a bad key
                 raise BufferAuthError(err.get("message", code))
             if code == "RATE_LIMIT_EXCEEDED":
                 raise BufferRateLimit(err.get("message", code))

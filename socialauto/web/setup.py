@@ -52,11 +52,13 @@ class SetupChecks:
     def buffer(self, key: str) -> dict:
         if not key:
             return {"ok": False, "reason": "missing"}
-        from ..reel.buffer import BufferAuthError, GraphBuffer
+        from ..reel.buffer import BufferAuthError, BufferError, GraphBuffer
         try:
             channels = GraphBuffer(key, session=self.s).channels()
         except BufferAuthError:
             return {"ok": False, "reason": "rejected"}
+        except BufferError as exc:        # only a failed connection is "network"; anything Buffer answered is a refusal
+            return {"ok": False, "reason": "network" if str(exc).startswith(("network", "HTTP 5")) else "rejected"}
         except Exception:                 # noqa: BLE001
             return {"ok": False, "reason": "network"}
         names = {"instagram": "Instagram", "youtube": "YouTube", "linkedin": "LinkedIn"}

@@ -210,6 +210,11 @@ def test_buffer_errors():
     buf = GraphBuffer("key", session=FakeHTTP([{"data": None, "errors": [{"message": "no", "extensions": {"code": "UNAUTHORIZED"}}]}]))
     with pytest.raises(BufferAuthError):
         buf.org()
+    # what Buffer really answers for a wrong or expired key (seen 2026-11-08)
+    buf = GraphBuffer("key", session=FakeHTTP([{"data": None, "errors": [{"message": "Access token is not valid",
+                                                                          "extensions": {"code": "UNAUTHENTICATED"}}]}]))
+    with pytest.raises(BufferAuthError):
+        buf.org()
     buf = GraphBuffer("key", session=FakeHTTP([{"data": {"account": {"organizations": [{"id": "o"}]}}},
                                                {"data": {"channels": [{"id": "c", "service": "instagram"}]}},
                                                {"data": {"createPost": {"message": "Text is required"}}}]))
