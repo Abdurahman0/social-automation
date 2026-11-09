@@ -17,6 +17,7 @@ import html
 import logging
 import re
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -59,8 +60,8 @@ Siz qiladigan ishlar (har biri bitta xabar va tugmalar bilan keladi):
 2) 📝 Ssenariyni tahrirlaysiz yoki tasdiqlaysiz (8 qism, o'zbekcha).
 3) 🎙 Matnni o'qib, ovozni yuborasiz.
 4) 🎬 Videoni ko'rasiz: tuzatish (matn yoki ovozli xabar) yoki ✅ tasdiqlash.
-5) 🖼 Muqovani o'zingiz tayyorlab yuborasiz (bot muqova qilmaydi) → bot GitHub'ga va Buffer qoralamalariga tayyorlaydi.
-   👉 Buffer'da qoralama tayyor — tasdiqlab rejalashtirish sizda (bot hech narsani o'zi joylamaydi).
+5) 🖼 Muqovani o'zingiz tayyorlab yuborasiz (bot muqova qilmaydi) → bot GitHub'ga saqlaydi va Buffer navbatiga qo'shadi.
+   👉 Buffer uni o'z jadvali bo'yicha, navbatdagi bo'sh vaqtda o'zi joylaydi.
 6) 📱 Reel efirga chiqqach — story qoralamasi tayyor bo'ladi, uni o'zingiz joylaysiz.
 
 Buyruqlar:
@@ -179,13 +180,18 @@ def buffer_message(title: str, reel: dict, dry_run: bool) -> str:
     names = {"instagram": "Instagram (Reels)", "youtube": "YouTube (Shorts)", "linkedin": "LinkedIn"}
     lines = [f"📤 <b>«{e(title)}»</b>", f"• GitHub: {e(reel.get('git_note') or '—')}"]
     if drafts:
-        lines.append("• 📝 <b>Buffer'da qoralama tayyor — tasdiqlab rejalashtirish sizda.</b>")
-        lines.append("• Qoralamalar: " + ", ".join(names.get(k, k) for k in drafts) +
-                     (" (🧪 sinov rejimi: Buffer'da haqiqatda yaratilmadi, faqat yozib qo'yildi)" if dry_run else ""))
-        lines.append("Bot hech narsani o'zi rejalashtirmaydi va chiqarmaydi.\nhttps://publish.buffer.com")
+        lines.append("• 📅 <b>Buffer navbatiga qo'shildi — Buffer uni o'z vaqtida o'zi joylaydi.</b>")
+        states = reel.get("buffer") or {}
+        for k in drafts:
+            due = (states.get(k) or {}).get("due_at")
+            when = f": {tashkent_time(parse_iso(due), datetime.now(timezone.utc))} (Toshkent)" if due else ""
+            lines.append(f"  – {names.get(k, k)}{when}")
+        if dry_run:
+            lines.append("🧪 Sinov rejimi: Buffer'ga haqiqatda yuborilmadi, faqat yozib qo'yildi.")
+        lines.append("Vaqtni Buffer'da o'zgartirishingiz mumkin: https://publish.buffer.com")
     else:
-        lines.append("• Buffer ulanmagan — qoralamalar yaratilmadi (docs/OWNER_TODO.md).")
-    lines.append("Siz rejalashtirgan reel efirga chiqqach, story qoralamasini (sizning muqovangiz + havola) tayyorlayman.")
+        lines.append("• Buffer ulanmagan — reel Buffer'ga yuborilmadi (docs/OWNER_TODO.md).")
+    lines.append("Reel efirga chiqqach, story qoralamasini (sizning muqovangiz + havola) tayyorlayman.")
     return "\n".join(lines)
 
 
@@ -270,8 +276,7 @@ def status_text(app: App, scheduler_paused: bool) -> str:
     except Exception:        # noqa: BLE001
         nxt = "—"
     lines = ["📊 <b>Bot holati</b>",
-             f"🧪 Rejim: {'sinov — Buffer qoralamalari faqat yozib qo‘yiladi' if s.dry_run else 'Buffer qoralamalari haqiqatda yaratiladi'}"
-             " (bot hech qachon o‘zi joylamaydi)",
+             f"🧪 Rejim: {'sinov — Buffer’ga hech narsa yuborilmaydi, faqat yozib qo‘yiladi' if s.dry_run else 'tasdiqlangan reel Buffer navbatiga yuboriladi, Buffer o‘zi joylaydi'}",
              f"⏯ Avtomatik ish: {'to‘xtatilgan (/resume)' if scheduler_paused else 'ishlayapti'}",
              f"🤖 Claude: {'limit, ' + tashkent_time(paused, now) + ' da ochiladi' if paused else 'ishlayapti'}",
              f"📝 Buffer: {buf} · 📊 YouTube statistikasi: {yt} · Instagram statistikasi: {ig}",
@@ -721,7 +726,7 @@ class TelegramBot:
     @authorized
     async def cmd_pause(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         self.app.kv.set(PAUSED_KEY, True)
-        await update.message.reply_text("⏸ Avtomatik ish to'xtatildi (tadqiqot, render va qoralamalar). /resume")
+        await update.message.reply_text("⏸ Avtomatik ish to'xtatildi (tadqiqot, render va Buffer'ga yuborish). /resume")
 
     @authorized
     async def cmd_resume(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

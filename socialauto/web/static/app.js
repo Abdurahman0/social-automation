@@ -37,6 +37,7 @@ const ICONS = {
   videos: "M4 5h16v14H4zM10 9l5 3-5 3z",
   insights: "M4 20V10M10 20V4M16 20v-7M22 20H2",
   pipeline: "M4 4h4v16H4zM10 4h4v10h-4zM16 4h4v6h-4z",
+  approved: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12.5l2.8 2.8L16.5 9.5",
   refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
   check: "M5 12.5l4.5 4.5L19 7",
   chevron: "M6 9l6 6 6-6",
@@ -622,9 +623,10 @@ const ROUTES = [
   { key: "videos", hash: "#/videos", label: "Videolar", icon: "videos" },
   { key: "insights", hash: "#/insights", label: "Tahlil", icon: "insights" },
   { key: "pipeline", hash: "#/pipeline", label: "Jarayon", icon: "pipeline" },
-  { key: "skills", hash: "#/skills", label: "Ko'nikmalar", icon: "skills" },
+  { key: "approved", hash: "#/approved", label: "Tasdiqlangan", short: "Tasdiq", icon: "approved" },
+  { key: "skills", hash: "#/skills", label: "Ko'nikmalar", short: "Ko'nikma", icon: "skills" },
   { key: "repo", hash: "#/repo", label: "GitHub", icon: "github" },
-  { key: "settings", hash: "#/settings", label: "Sozlamalar", icon: "settings" },
+  { key: "settings", hash: "#/settings", label: "Sozlamalar", short: "Sozlash", icon: "settings" },
 ];
 function brand() {
   const mark = h("div", { class: "brand-mark" });
@@ -634,7 +636,7 @@ function brand() {
 }
 function shell(active, title, sub, controls, body) {
   const nav = (cls) => h("nav", { class: cls, "aria-label": "Bo'limlar" },
-    ROUTES.map((r) => h("a", { href: r.hash, "aria-current": r.key === active ? "page" : null }, icon(r.icon), h("span", { text: r.label }))));
+    ROUTES.map((r) => h("a", { href: r.hash, "aria-current": r.key === active ? "page" : null, "aria-label": r.label }, icon(r.icon), h("span", { text: cls === "bottom-nav" && r.short ? r.short : r.label }))));
   const logout = h("button", { class: "btn", type: "button" }, icon("logout"), "Chiqish");
   logout.addEventListener("click", async () => { await api("/api/logout", { method: "POST" }).catch(() => {}); renderLogin(); });
   const side = h("aside", { class: "side" }, brand(), nav("nav"), h("div", { class: "side-foot" }, themeButton({ wide: true }), logout));
@@ -662,7 +664,7 @@ function refreshButton(after) {
 }
 function banners(st) {
   const out = [];
-  if (st.dry_run) out.push(h("div", { class: "banner" }, h("span", { text: "🧪" }), h("div", {}, h("b", { text: "Sinov rejimi yoqilgan. " }), "Buffer qoralamalari haqiqatda yaratilmaydi — faqat yozib qo'yiladi. Bot hech qachon o'zi joylamaydi yoki rejalashtirmaydi: Buffer'da qoralama tayyor bo'lgach, tasdiqlab rejalashtirish sizda.")));
+  if (st.dry_run) out.push(h("div", { class: "banner" }, h("span", { text: "🧪" }), h("div", {}, h("b", { text: "Sinov rejimi yoqilgan. " }), "Tasdiqlangan reellar Buffer'ga haqiqatda yuborilmaydi — faqat yozib qo'yiladi. Sinov rejimi o'chirilgach, ular Buffer navbatiga tushadi va Buffer ularni o'z vaqtida o'zi joylaydi.")));
   const viaBuffer = Object.entries(st.platforms).filter(([, info]) => !info.connected && info.source === "buffer").map(([p]) => PF[p].name);
   if (viaBuffer.length) out.push(h("div", { class: "banner" }, h("span", { text: "📊" }), h("div", {}, h("b", { text: `${viaBuffer.join(" va ")} statistikasi Buffer orqali. ` }), "Faqat Buffer'dan chiqqan postlar: ko'rish, layk, izoh, ulashish, saqlash, qamrov va o'rtacha tomosha. Buffer ularni kuniga taxminan bir marta yangilaydi. Obunachilar soni, kunlik grafik va retention uchun hisobni to'g'ridan-to'g'ri ulang (Sozlamalar).")));
   for (const [p, info] of Object.entries(st.platforms)) if (info.problem === "auth") out.push(h("div", { class: "banner" }, h("span", { text: "🔑" }), h("div", {}, h("b", { text: `${PF[p].name} ruxsati tugagan. ` }), "Statistika eski ko'rinishda qoldi. Qayta ulash: ", h("code", { text: `.venv/bin/python -m socialauto ${p === "youtube" ? "youtube-auth" : "instagram-connect"}` }))));
@@ -886,7 +888,7 @@ async function renderPipeline() {
 // ---------------------------------------------------------------- the owner's reel flow
 const STAGE_HINT = { research: "Bot tadqiqot qiladi · Siz mavzu tanlaysiz", script: "Bot yozadi · Siz tahrirlaysiz va ovoz yuborasiz",
   broll: "Bot haqiqiy video va rasmlarni yig'adi", edit: "Bot montaj qiladi · Siz ko'rib chiqasiz",
-  publish: "Siz muqova tayyorlaysiz · Bot GitHub va Buffer qoralamalari · Siz Buffer'da tasdiqlab rejalashtirasiz", live: "Bot efirni kuzatadi · Siz storyni o'zingiz joylaysiz" };
+  publish: "Siz muqova tayyorlaysiz · Bot GitHub'ga saqlaydi va Buffer navbatiga qo'shadi · Buffer o'z vaqtida joylaydi", live: "Bot efirni kuzatadi · Siz storyni o'zingiz joylaysiz" };
 function whoBadge(who) { return h("span", { class: `who ${who === "Siz" ? "you" : "bot"}`, text: who === "Siz" ? "Siz" : "Bot" }); }
 async function renderReelBoard(data) {
   const st = state.status || (await api("/api/status"));
@@ -899,7 +901,7 @@ async function renderReelBoard(data) {
         h("div", { class: "meta" }, it.slot ? h("span", { text: `🗓 ${it.slot}` }) : null, it.origin_voice ? h("span", { class: "tag", text: "ovozdan" }) : null));
       return card;
     }) : h("div", { class: "col-empty", text: "Bo'sh" }))));
-  shell("pipeline", "Jarayon", "Reel bosqichlari: kim nima qiladi — «Siz» yoki «Bot». Bot faqat qoralama tayyorlaydi.", [updatedNode(st)], h("div", {}, banners({ ...st, dry_run: data.dry_run }), board));
+  shell("pipeline", "Jarayon", "Reel bosqichlari: kim nima qiladi — «Siz» yoki «Bot». Tasdiqlangan reel Buffer navbatiga tushadi.", [updatedNode(st)], h("div", {}, banners({ ...st, dry_run: data.dry_run }), board));
 }
 
 async function renderReel(key) {
@@ -939,16 +941,51 @@ async function renderReel(key) {
         h("div", { style: "min-width:0" }, s.link ? h("a", { href: s.link, target: "_blank", rel: "noopener noreferrer", text: s.title || s.provider }) : h("span", { text: s.title || s.provider }),
           h("div", { class: "vmeta", text: `${s.provider} · ${s.author} · ${s.license}` })))))));
   }
+  if (r.video_url || r.cover_url) {
+    cards.push(h("div", { class: "card" }, h("h2", { text: "Video va muqova" }), h("p", { class: "hint", text: r.version ? `Siz tasdiqlagan versiya: v${r.version}` : "Siz tasdiqlagan versiya" }),
+      h("div", { class: "media-pair" },
+        r.video_url ? h("figure", {}, h("video", { src: r.video_url, controls: true, preload: "metadata", playsinline: true, poster: r.cover_url || null }), h("figcaption", { text: "Reel" })) : null,
+        r.cover_url ? h("figure", {}, h("img", { src: r.cover_url, alt: "Muqova" }), h("figcaption", { text: "Muqova" })) : null)));
+  }
   const pub = [];
   if (r.versions.length) pub.push(h("div", {}, h("span", { text: "Versiyalar" }), h("b", { text: r.versions.map((v) => `v${v.n}`).join(", ") })));
   pub.push(h("div", {}, h("span", { text: "GitHub" }), h("b", { text: r.git || "hali emas" })));
-  pub.push(h("div", {}, h("span", { text: "Buffer qoralamalari" }), h("b", { text: r.drafts.length ? `${r.drafts.join(", ")} — tasdiqlab rejalashtirish sizda` + (r.dry_run ? " (sinov)" : "") : "hali yo'q" })));
   pub.push(h("div", {}, h("span", { text: "Muqova" }), h("b", { text: r.cover ? "sizning muqovangiz" : "kutilmoqda (siz tayyorlaysiz)" })));
-  pub.push(h("div", {}, h("span", { text: "Efir" }), r.live ? h("a", { href: r.live, target: "_blank", rel: "noopener noreferrer", text: "reelni ochish" }) : h("b", { text: "hali chiqmagan" })));
-  cards.push(h("div", { class: "card" }, h("h2", { text: "GitHub va Buffer" }), h("p", { class: "hint", text: "Bot faqat qoralama tayyorlaydi — hech narsani o'zi joylamaydi yoki rejalashtirmaydi." }), h("div", { class: "kv" }, pub)));
+  pub.push(h("div", {}, h("span", { text: "Story" }), h("b", { text: r.story ? "Buffer'da qoralama — joylash sizda" : "reel chiqqach tayyorlanadi" })));
+  const bufBox = r.buffer.length ? bufferRows(r.buffer) : h("p", { class: "hint", text: r.approved ? "Muqova kelgach, reel Buffer navbatiga qo'shiladi." : "Video tasdiqlangach, muqova va Buffer navbati shu yerda ko'rinadi." });
+  cards.push(h("div", { class: "card" }, h("h2", { text: "Buffer va GitHub" }), h("p", { class: "hint", text: "Tasdiqlangan reel Buffer navbatiga tushadi va Buffer uni har bir tarmoq jadvalidagi navbatdagi bo'sh vaqtda o'zi joylaydi." }), bufBox, h("div", { class: "kv" }, pub)));
+  if (r.captions) {
+    const cap = (label, text) => text ? h("div", { class: "caption" }, h("div", { class: "cap-head" }, h("b", { text: label }), copyButton(text)), h("p", { text })) : null;
+    cards.push(h("div", { class: "card" }, h("h2", { text: "Post matnlari" }), h("p", { class: "hint", text: "Buffer'ga shu matnlar bilan yuborildi." }),
+      h("div", { class: "captions" }, cap("Instagram", r.captions.instagram), cap("YouTube sarlavhasi", r.captions.youtube_title), cap("YouTube tavsifi", r.captions.youtube_description),
+        cap("LinkedIn", r.captions.linkedin), cap("Story matni", r.captions.story_text))));
+  }
   if (r.fixes.length) cards.push(h("div", { class: "card" }, h("h2", { text: "Sizning tuzatishlaringiz" }), h("ul", { class: "never" }, r.fixes.map((f) => h("li", {}, h("span", { text: "✏️" }), h("div", { text: f }))))));
-  const body = h("div", {}, h("a", { class: "back", href: "#/pipeline" }, icon("left"), "Jarayon"), h("div", { class: "reel-grid" }, cards));
-  shell("pipeline", "Reel", null, [], body);
+  const from = r.approved ? ["approved", "#/approved", "Tasdiqlangan"] : ["pipeline", "#/pipeline", "Jarayon"];
+  const body = h("div", {}, h("a", { class: "back", href: from[1] }, icon("left"), from[2]), h("div", { class: "reel-grid" }, cards));
+  shell(from[0], "Reel", null, [], body);
+}
+
+// ---------------------------------------------------------------- approved reels
+const BUF_CLS = { sent: "ok", scheduled: "warn", sending: "warn", error: "err", missing: "err", needs_approval: "warn", draft: "warn" };
+function bufferRows(rows, links = true) {
+  return h("ul", { class: "buf-rows" }, rows.map((p) => h("li", {},
+    h("span", { class: `dot ${p.platform === "youtube" ? "yt" : p.platform === "instagram" ? "ig" : "li"}` }),
+    h("b", { text: p.name }),
+    h("span", { class: `tag ${p.label.startsWith("Sinov") ? "" : BUF_CLS[p.status] || ""}`, text: p.label }),
+    p.when ? h("span", { class: "vmeta", text: p.when }) : null,
+    links && p.link ? extLink(p.link, "ochish") : null)));
+}
+async function renderApproved() {
+  const data = await api("/api/approved");
+  const st = state.status || (await api("/api/status"));
+  const grid = data.items.length ? h("div", { class: "approved-grid" }, data.items.map((it) => h("a", { class: "card approved-card", href: `#/reel/${it.key}` },
+    it.cover_url ? h("img", { class: "ap-cover", src: it.cover_url, alt: "", loading: "lazy" }) : h("div", { class: "ap-cover empty" }, icon("approved")),
+    h("div", { class: "ap-body" }, h("div", { class: "vtitle", text: it.title }),
+      h("div", { class: "vmeta" }, it.date ? dayLong(it.date) : "", it.date ? " · " : "", it.status),
+      it.platforms.length ? bufferRows(it.platforms, false) : h("p", { class: "hint", text: "Muqova kelgach, Buffer navbatiga qo'shiladi." })))))
+    : h("div", { class: "card" }, h("div", { class: "chart-empty", text: "Hali tasdiqlangan reel yo'q. Telegram'da videoni tasdiqlaganingizdan keyin shu yerda ko'rinadi." }));
+  shell("approved", "Tasdiqlangan", `${data.items.length} ta reel · Buffer ularni o'z vaqtida joylaydi`, [updatedNode(st)], h("div", {}, banners({ ...st, dry_run: data.dry_run }), grid));
 }
 
 // ---------------------------------------------------------------- skills
@@ -1510,6 +1547,7 @@ async function route() {
     else if (hash === "#/videos") await renderVideos();
     else if (hash === "#/insights") await renderInsights();
     else if (hash === "#/pipeline") await renderPipeline();
+    else if (hash === "#/approved") await renderApproved();
     else if (hash === "#/skills") await renderSkills();
     else if (hash === "#/repo") await renderRepo();
     else if (hash.startsWith("#/settings")) await renderSetup(false, hash.slice(11).split("?")[0] || null);

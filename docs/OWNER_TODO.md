@@ -3,8 +3,8 @@
 Qolgan hamma narsa tayyor va sinov rejimida (dry-run) ishlab turibdi. Har bir qadam — "shuni bosing / shuni joylang".
 Terminal buyruqlari loyiha papkasida (`social-automation`) yoziladi.
 
-**Muhim qonunlar (siz belgilagansiz):** bot **hech qachon o'zi joylamaydi yoki rejalashtirmaydi** — faqat Buffer'da
-qoralama (va story qoralamasi) tayyorlaydi; tasdiqlab rejalashtirish sizda. Bot **muqova qilmaydi** — muqovani siz
+**Muhim qonunlar (siz belgilagansiz):** Telegram'da tasdiqlagan reelingiz **Buffer navbatiga** tushadi va Buffer uni
+o'z jadvali bo'yicha joylaydi (bot vaqtni o'zi tanlamaydi; story Buffer'da qoralama bo'lib qoladi). Bot **muqova qilmaydi** — muqovani siz
 tayyorlaysiz, bot uni so'raydi va o'zgartirmasdan ishlatadi.
 
 ---
@@ -26,21 +26,22 @@ yoqiladi. Qayta o'rnatish yoki yangilash: `git pull && ./install.sh`. Tekshirish
 Parol `.env` faylida turibdi: `grep DASHBOARD_PASSWORD .env`. Sayt: **http://localhost:8090**.
 
 ## 4. Buffer API kaliti (5 daqiqa) — asosiy qadam
-Bot Buffer'da Instagram, YouTube va LinkedIn uchun **qoralama** yaratadi, statistikani o'qiydi va siz rejalashtirgan reel
-efirga chiqqanini aniqlaydi (story qoralamasi uchun). U hech narsani o'zi rejalashtirmaydi yoki chiqarmaydi.
+Bot tasdiqlangan reelni Buffer'da Instagram, YouTube va LinkedIn **navbatiga** qo'shadi, statistikani o'qiydi va reel
+efirga chiqqanini aniqlaydi (story qoralamasi uchun). Chiqish vaqtini Buffer'dagi har bir kanalning **Posting schedule**
+(navbat jadvali) belgilaydi — uni Buffer → kanal → Settings → Posting Schedule'da sozlang.
 1. https://publish.buffer.com → **Settings → API** → **Create API key** (personal key). Bepul tarifda ham bor.
 2. Saytda **Sozlamalar** → «Buffer» qadami: kalitni qo'ying va «Tekshirish»ni bosing (kanallaringiz nomi chiqadi).
 3. Buffer'da **Instagram (Business/Creator)**, **YouTube** va **LinkedIn** kanallari ulangan bo'lsin (Buffer → Channels).
 Saqlaganingizdan keyin bot o'zi qayta ishga tushadi.
-Kalit bo'lmasa: tadqiqot statistikasiz ishlaydi va qoralamalar yaratilmaydi.
+Kalit bo'lmasa: tadqiqot statistikasiz ishlaydi va reellar Buffer'ga yuborilmaydi.
 
 ## 5. Sinov rejimini o'chirish (Buffer ulangandan keyin)
-Sinov rejimida (`dry_run = true`) Buffer qoralamalari haqiqatda yaratilmaydi — faqat `data/dryrun_posts.json` ga
-yoziladi. Buffer'da haqiqiy **qoralamalar** paydo bo'lishini xohlasangiz:
-1. Loyiha papkasidagi `config.local.toml` fayliga (u sizniki, git'ga tushmaydi) eng yuqoriga shu qatorni yozing:
-   `dry_run = false`
-2. `systemctl --user restart social-automation`
-Shunda ham bot hech narsani rejalashtirmaydi yoki chiqarmaydi — qoralamani ochib, tasdiqlab rejalashtirish sizda.
+Sinov rejimida (`dry_run = true`) Buffer'ga hech narsa yuborilmaydi — faqat `data/dryrun_posts.json` ga yoziladi.
+Tasdiqlangan reellar haqiqatda Buffer navbatiga tushishi uchun:
+1. Loyiha papkasida: `python -m socialauto dry-run off` (Windows: `.venv\Scripts\python -m socialauto dry-run off`).
+   Sozlama `config.local.toml` ga yoziladi (u sizniki, git'ga tushmaydi).
+2. Bot va saytni qayta ishga tushiring: Linux `systemctl --user restart social-automation social-automation-web`;
+   Windows `SocialAutomation-Bot` va `SocialAutomation-Web` vazifalarini to'xtatib, qayta ishga tushiring.
 
 ## 6. YouTube statistikasi (ixtiyoriy, 15 daqiqa) — faqat o'qish
 Saytda **Sozlamalar → Statistika → YouTube**: u yerda qadamma-qadam ko'rsatma bor (Google Cloud loyihasi, ikkita API'ni

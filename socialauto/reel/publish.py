@@ -1,9 +1,10 @@
-"""Step 5-6: the approved reel goes to git (`reels/<date>-<topic>/`) and to Buffer as DRAFTS; later the story step.
+"""Step 5-6: the approved reel goes to git (`reels/<date>-<topic>/`) and into Buffer's QUEUE; later the story step.
 
 - git: video + the owner's cover + research file + script + source list go to the user's OWN content repo
   (socialauto/content_repo.py, Task 07) — never to the code repo. Files over 50 MB go through Git LFS.
-- Buffer: drafts for Instagram (reel), YouTube and LinkedIn with captions in the owner's style (style file learned
-  from the owner's previous Buffer posts). Never scheduled or published: the owner approves and schedules in Buffer.
+- Buffer: queued posts for Instagram (reel), YouTube and LinkedIn with captions in the owner's style (style file
+  learned from the owner's previous Buffer posts). The owner already approved the reel in Telegram; Buffer posts it at
+  the channel's next free posting-schedule time (owner, 2026-11-09). The bot never picks the time itself.
   Buffer fetches the video from a URL, so the files are served for a moment through the free quick tunnel.
 - Story: when the reel is live (Buffer reports it sent, with its link), a story draft with the cover image and the
   reel link in the reminder sticker field; the owner also gets the image + link in Telegram.
@@ -77,13 +78,21 @@ def _local_urls(files: list[Path]):
     yield [str(f) for f in files]
 
 
-def create_drafts(buffer: BufferClient, captions: dict, video: Path, public_files=None) -> dict[str, str]:
-    """One draft per connected channel (instagram / youtube / linkedin). Returns {service: post id}."""
+def post_state(p: dict) -> dict:
+    """What the website shows about one Buffer post (no ids)."""
+    return {"status": p.get("status") or "", "due_at": p.get("dueAt"), "sent_at": p.get("sentAt"),
+            "link": p.get("externalLink")}
+
+
+def queue_posts(buffer: BufferClient, captions: dict, video: Path, public_files=None) -> tuple[dict[str, str], dict]:
+    """One queued post per connected channel (instagram / youtube / linkedin).
+    Returns ({service: post id}, {service: post_state})."""
     wanted = {"instagram", "youtube", "linkedin"}
     channels = [c for c in buffer.channels() if c.get("service") in wanted]
     if not channels:
         raise RuntimeError("no Instagram / YouTube / LinkedIn channel is connected in Buffer")
     out: dict[str, str] = {}
+    states: dict[str, dict] = {}
     links = public_files([video]) if (public_files and not buffer.dry_run) else _local_urls([video])
     with links as (video_url,):
         for ch in channels:
@@ -91,21 +100,27 @@ def create_drafts(buffer: BufferClient, captions: dict, video: Path, public_file
             if svc in out:
                 continue
             if svc == "instagram":
-                pid = buffer.create_draft(ch, captions["instagram"], video_url, None, instagram_reel_meta())
+                p = buffer.queue_post(ch, captions["instagram"], video_url, instagram_reel_meta())
             elif svc == "youtube":
-                pid = buffer.create_draft(ch, captions["youtube_description"], video_url, None,
-                                          youtube_meta(captions["youtube_title"]))
+                p = buffer.queue_post(ch, captions["youtube_description"], video_url,
+                                      youtube_meta(captions["youtube_title"]))
             else:
-                pid = buffer.create_draft(ch, captions["linkedin"], video_url, None, {})
-            out[svc] = pid
-    return out
+                p = buffer.queue_post(ch, captions["linkedin"], video_url, {})
+            out[svc] = p["id"]
+            states[svc] = post_state(p)
+    return out, states
 
 
 def rename_drafts(buffer: BufferClient, drafts: dict[str, str], captions: dict, new_title: str) -> None:
-    """The publish date changed: the YouTube draft title (and the texts) follow."""
+    """The publish date changed: the YouTube title follows while the post is still a draft. Queued posts keep their
+    text (Buffer already owns them)."""
+    from .buffer import BufferError
     for svc, pid in drafts.items():
         if svc == "youtube":
-            buffer.edit_post(pid, metadata=youtube_meta(new_title))
+            try:
+                buffer.edit_post(pid, metadata=youtube_meta(new_title))
+            except BufferError as exc:
+                log.info("YouTube title not renamed: %s", exc)
 
 
 def live_link(buffer: BufferClient, drafts: dict[str, str]) -> str | None:
@@ -127,5 +142,5 @@ def create_story_draft(buffer: BufferClient, cover: Path, link: str, text: str, 
         return buffer.create_draft(ig, text, None, image_url, story_meta(link, text), reminder=True)
 
 
-__all__ = ["learn_style", "write_captions", "create_drafts", "rename_drafts", "live_link",
+__all__ = ["learn_style", "write_captions", "queue_posts", "post_state", "rename_drafts", "live_link",
            "create_story_draft", "GitResult", "json"]

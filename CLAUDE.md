@@ -1,8 +1,8 @@
 # Social Automation: project laws
 
 A local service with ONE Telegram bot that makes short reels with the owner's voice, gets the owner's approval at every
-owner step, and prepares each approved reel as Buffer DRAFTS (Instagram, YouTube, LinkedIn) that the owner approves and
-schedules himself. A website shows live statistics and analytics and the pipeline.
+owner step, and puts each approved reel into Buffer's QUEUE (Instagram, YouTube, LinkedIn); Buffer posts it at its own
+next free posting-schedule time. A website shows live statistics and analytics and the pipeline.
 
 ## Owner laws (never break)
 1. **Completion law:** finish every item fully. No stubs, TODOs, placeholders, fake data in the UI, or skipped
@@ -11,10 +11,10 @@ schedules himself. A website shows live statistics and analytics and the pipelin
 2. **Owner time is scarce.** Decide sensible defaults yourself, finish end to end, ask only owner-only things,
    batched, in `docs/OWNER_TODO.md`.
 3. **Approval first:** nothing moves to the next owner step without the owner pressing Approve in Telegram.
-4. **Safe by default:** `dry_run = true` until the owner connects Buffer and switches it off. In dry-run even the
-   Buffer drafts are only recorded locally (`data/dryrun_posts.json`), never created. (Posting is never possible at
-   all: law 15.)
-5. **Telegram is quiet:** the owner gets only his own steps (approvals, voice, cover, "Buffer'da qoralama tayyor",
+4. **Safe by default:** `dry_run = true` on a new install until the owner connects Buffer and switches it off
+   (`python -m socialauto dry-run off`). In dry-run nothing is sent to Buffer: it is only recorded locally
+   (`data/dryrun_posts.json`).
+5. **Telegram is quiet:** the owner gets only his own steps (approvals, voice, cover, "Buffer navbatiga qo'shildi",
    story), and alerts they must act on
    (auth expired, limit reached with the reopen time in Tashkent time). Errors go to logs.
 6. **UI law (website + Telegram):** never show raw backend JSON, error codes, UUIDs or internal ids. Show names,
@@ -38,10 +38,12 @@ schedules himself. A website shows live statistics and analytics and the pipelin
     Video content is in Uzbek by default (configurable, `[reel] language`; owner, Task 04).
 14. **Owner's voice:** the narration is always the owner's own recording uploaded to the Telegram bot. Never
     TTS for real videos. Details: `docs/TASK_02_OWNER_VOICE.md`.
-15. **The bot NEVER publishes or schedules anything** (owner, 2026-11-08), on any platform, in any mode. It only
-    creates Buffer drafts (Instagram, YouTube, LinkedIn) and a story draft; the owner approves and schedules in Buffer
-    and publishes the story himself. No upload/publish/schedule code may exist (guard test `tests/test_guards.py`);
-    platform clients are read-only (statistics); every Buffer create is `saveToDraft: true`.
+15. **Approved reels go into Buffer's queue; the bot never posts directly** (owner, 2026-11-08; changed by the owner
+    2026-11-09). After the owner approves the video (and sends the cover) in Telegram, the reel is added to Buffer's
+    queue for Instagram, YouTube and LinkedIn (`mode: addToQueue`, `schedulingType: automatic`) and Buffer posts it at
+    each channel's next free posting-schedule time. The bot never picks a time (no `dueAt`, share-now or custom
+    schedule) and never uploads or publishes on a platform itself: platform clients are read-only (statistics), guard
+    test `tests/test_guards.py`. The story stays a Buffer DRAFT (`saveToDraft: true`) that the owner publishes himself.
 16. **The bot NEVER makes a cover / thumbnail** (owner, 2026-11-08). After the owner approves the video, the bot asks
     for the owner's cover in Telegram and waits; the cover is used as is (only a format conversion if Buffer needs
     it, and the owner is told). No generated, fallback or burned-in cover of any kind.

@@ -1,7 +1,7 @@
 """Builds every component once, so the bot service, the website, the CLI, the demo and tests share the wiring.
 
-Owner law 15: nothing here can publish or schedule. Buffer is used for drafts only (a dry-run stand-in while
-`dry_run` is on); YouTube and Instagram clients are read-only and live in the analytics collector.
+Owner law 15: nothing here posts directly. An approved reel goes into Buffer's queue (a dry-run stand-in while
+`dry_run` is on) and Buffer posts it; YouTube and Instagram clients are read-only and live in the analytics collector.
 """
 
 from __future__ import annotations
@@ -102,7 +102,7 @@ def build_app(settings: Settings, *, claude=None, transcriber: Transcriber | Non
                                      settings.reel.music_volume_db, settings.reel.remotion_concurrency)
     writer = ReelWriter(claude, settings.content.niche, settings.reel.language, settings.reel.words_per_second, lessons)
     if public_files is None and not settings.dry_run:
-        public_files = make_public_files(settings.root)   # Buffer fetches the draft's video from a temporary link
+        public_files = make_public_files(settings.root)   # Buffer fetches the reel's video from a temporary link
     workflow = Workflow(settings, store, jobs, outbox, kv, transcriber, budget, lessons, clock, buffer=buffer,
                         buffer_stats=buffer_stats, reel_writer=writer, places=places, reel_renderer=reel_renderer,
                         broll_providers=broll_providers, public_files=public_files, content=content)

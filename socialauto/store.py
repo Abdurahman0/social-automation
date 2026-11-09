@@ -26,7 +26,7 @@ RESEARCHING = "researching"           # Bot: Buffer stats + news research
 TOPIC_PENDING = "topic_pending"       # Siz: pick a topic
 COVER_WAITING = "cover_waiting"       # Siz: send the cover
 PUBLISHING = "publishing"             # Bot: git reels/ + Buffer drafts
-BUFFER_PENDING = "buffer_pending"     # Siz: approve and schedule in Buffer (bot watches for "live")
+BUFFER_PENDING = "buffer_pending"     # Bot: in Buffer's queue, Buffer posts it at its own time (bot watches for "live")
 STORY_PENDING = "story_pending"       # Siz: publish the story
 
 ACTIVE = (RESEARCHING, TOPIC_PENDING, DRAFTING, SCRIPT_PENDING, REVISING, VOICE_WAITING, VOICE_PROCESSING, VOICE_CHECK,
@@ -41,7 +41,7 @@ STATUS_UZ = {
     RENDERING: "Video tayyorlanmoqda", VIDEO_PENDING: "Videoni ko'rib chiqish kutilmoqda",
     DONE: "Tugadi", REJECTED: "Rad etildi", FAILED: "To'xtab qoldi",
     RESEARCHING: "Tadqiqot qilinmoqda", TOPIC_PENDING: "Mavzu tanlash kutilmoqda", COVER_WAITING: "Muqova kutilmoqda",
-    PUBLISHING: "Buffer qoralamalari tayyorlanmoqda", BUFFER_PENDING: "Buffer'da qoralama tayyor — rejalashtirish sizda",
+    PUBLISHING: "Buffer'ga yuborilmoqda", BUFFER_PENDING: "Buffer navbatida — o'z vaqtida chiqadi",
     STORY_PENDING: "Story qoralamasi tayyor — joylash sizda",
 }
 

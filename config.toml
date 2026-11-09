@@ -1,8 +1,8 @@
 # Social Automation settings. Secrets are NOT here: they live in .env and secrets/ (see .env.example).
 # Change the niche with ONE line: [content] niche.
 
-# Owner law 15: the bot NEVER publishes or schedules anything; it only creates Buffer drafts and a story draft.
-# dry_run = true: even the Buffer drafts are not created for real — they are only written to data/dryrun_posts.json.
+# Owner law 15: an approved reel goes into Buffer's queue and Buffer posts it at its own time; the bot never posts directly.
+# dry_run = true: nothing is sent to Buffer, it is only written to data/dryrun_posts.json. Turn off: `python -m socialauto dry-run off`.
 dry_run = true
 # Language of Telegram texts to the owner ("uz" or "en").
 owner_language = "uz"

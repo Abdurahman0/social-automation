@@ -18,7 +18,7 @@ from socialauto.platforms.dryrun import DryRunLog
 from socialauto.reel import layout, naming, research, script as rs
 from socialauto.reel.broll import Candidate, acceptable, collect, license_ok
 from socialauto.reel.buffer import DryRunBuffer, GraphBuffer, story_meta, youtube_meta
-from socialauto.reel.publish import create_drafts, create_story_draft, live_link
+from socialauto.reel.publish import create_story_draft, live_link, queue_posts
 from socialauto.store import (BUFFER_PENDING, COVER_WAITING, DONE, SCRIPT_PENDING, STORY_PENDING, TOPIC_PENDING,
                               VIDEO_PENDING, VOICE_WAITING)
 from socialauto.telegram_bot import TelegramBot
@@ -181,24 +181,27 @@ class FakeHTTP:
         return R()
 
 
-def test_buffer_draft_payloads_are_drafts_never_scheduled(tmp_path):
+def test_approved_reel_goes_into_the_buffer_queue_without_a_time(tmp_path):
     http = FakeHTTP([
         {"data": {"account": {"organizations": [{"id": "org1", "name": "Me"}]}}},
         {"data": {"channels": [{"id": "c-ig", "service": "instagram", "name": "ig"}, {"id": "c-yt", "service": "youtube", "name": "yt"},
                                {"id": "c-li", "service": "linkedin", "name": "li"}, {"id": "c-x", "service": "twitter", "name": "x"}]}},
-        {"data": {"createPost": {"post": {"id": "p1", "text": "t", "status": "draft"}}}},
-        {"data": {"createPost": {"post": {"id": "p2", "text": "t", "status": "draft"}}}},
-        {"data": {"createPost": {"post": {"id": "p3", "text": "t", "status": "draft"}}}},
+        {"data": {"createPost": {"post": {"id": "p1", "text": "t", "status": "scheduled", "dueAt": "2026-11-10T14:00:00Z"}}}},
+        {"data": {"createPost": {"post": {"id": "p2", "text": "t", "status": "scheduled", "dueAt": "2026-11-10T15:00:00Z"}}}},
+        {"data": {"createPost": {"post": {"id": "p3", "text": "t", "status": "scheduled", "dueAt": None}}}},
     ])
     buf = GraphBuffer("key", session=http)
     caps = {"instagram": "IG text #suv", "youtube_title": "YT title", "youtube_description": "YT desc", "linkedin": "LI text",
             "story_text": "Yangi reel"}
     video = tmp_path / "v.mp4"
     video.write_bytes(b"x")
-    drafts = create_drafts(buf, caps, video, public_files=None)
-    assert drafts == {"instagram": "p1", "youtube": "p2", "linkedin": "p3"}
+    ids, states = queue_posts(buf, caps, video, public_files=None)
+    assert ids == {"instagram": "p1", "youtube": "p2", "linkedin": "p3"}
+    assert states["instagram"] == {"status": "scheduled", "due_at": "2026-11-10T14:00:00Z", "sent_at": None, "link": None}
     inputs = [c["variables"]["input"] for c in http.calls[2:]]
-    assert all(i["saveToDraft"] is True and i["mode"] == "addToQueue" and "dueAt" not in i for i in inputs)
+    assert all(i["saveToDraft"] is False and i["mode"] == "addToQueue" and i["schedulingType"] == "automatic"
+               and "dueAt" not in i for i in inputs)
+    assert "dueAt" in http.calls[2]["query"]                                  # Buffer tells us the time it picked
     assert inputs[0]["metadata"] == {"instagram": {"type": "reel", "shouldShareToFeed": True}}
     assert inputs[1]["metadata"]["youtube"]["title"] == "YT title" and inputs[1]["metadata"]["youtube"]["categoryId"] == "27"
     assert inputs[0]["assets"][0]["video"]["url"]
@@ -308,12 +311,16 @@ def test_full_owner_flow(app, tmp_path, clock, long_voice):
     assert not (Path(app.settings.root) / "reels").exists()                 # never in the code repo (Task 07)
     pushed_cover = app.workflow.content.reels / reel["base"] / f"{reel['base']}_cover.png"
     assert pushed_cover.read_bytes() == cover.read_bytes()                    # law 16: the owner's cover, unchanged
-    drafts = [e for e in dryrun_entries(app) if e.get("kind") == "draft"]
-    assert len(drafts) == 3 and all(d["input"]["saveToDraft"] is True and "dueAt" not in d["input"] for d in drafts)
+    queued = [e for e in dryrun_entries(app) if e.get("kind") == "queue"]
+    assert len(queued) == 3 and all(d["input"]["mode"] == "addToQueue" and "dueAt" not in d["input"] for d in queued)
+    assert {k: s["status"] for k, s in reel["buffer"].items()} == {"instagram": "scheduled", "youtube": "scheduled",
+                                                                  "linkedin": "scheduled"}
     # it goes live -> story step
     app.workflow.buffer.live.add(reel["drafts"]["instagram"])
     wf.tick()
     assert app.store.video(vid)["status"] == STORY_PENDING
+    states = wf.reels.get(vid)["buffer"]
+    assert states["instagram"]["status"] == "sent" and states["instagram"]["link"] and states["youtube"]["status"] == "scheduled"
     assert [i.kind for i in app.outbox.pending(100)].count("story_ready") == 1
     ok, msg = press(bot, f"st:{vid}")
     assert ok and app.store.video(vid)["status"] == DONE

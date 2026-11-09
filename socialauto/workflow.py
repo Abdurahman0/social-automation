@@ -1,8 +1,9 @@
 """The pipeline (the owner's reel flow): research -> topic -> 8-part script -> the owner's voice -> real B-roll +
-Remotion render (_vN) -> the owner's review -> the owner's cover -> git reels/ + Buffer DRAFTS -> live -> story draft.
+Remotion render (_vN) -> the owner's review -> the owner's cover -> git reels/ + Buffer QUEUE -> live -> story draft.
 
-Owner law 15: the bot never publishes or schedules anything — it only creates Buffer drafts and a story draft; the owner
-approves and schedules in Buffer and publishes the story himself. Owner law 16: the bot never makes a cover; it asks for
+Owner law 15 (changed by the owner 2026-11-09): once the owner approves the reel in Telegram, it goes into Buffer's
+queue and Buffer posts it at the channel's next free posting-schedule time. The bot never picks a time and never posts
+directly on any platform; the story stays a Buffer draft that the owner publishes himself. Owner law 16: the bot never makes a cover; it asks for
 the owner's and uses it as is.
 
 Six stages; "Bot" steps run as durable jobs, "Siz" (owner) steps are one Telegram message with buttons each:
@@ -10,7 +11,7 @@ Six stages; "Bot" steps run as durable jobs, "Siz" (owner) steps are one Telegra
     2 Ssenariy va ovoz    Bot: 8-part Uzbek script                                     Siz: edit/approve, send the voice
     3 B-roll va dizayn    Bot: real licensed B-roll, Remotion layout (safe zones)
     4 Ovoz va montaj      Bot: rubaiSTT + alignment, voice chain, render _vN, checklist Siz: watch, fixes or approve
-    5 Tasdiq va Buffer    Siz: send the cover   Bot: git reels/ + Buffer drafts      Siz: approve & schedule in Buffer
+    5 Tasdiq va Buffer    Siz: send the cover   Bot: git reels/ + Buffer queue (Buffer posts it at its own time)
     6 Efirdan keyin       Bot: detects "live", story draft                            Siz: publish the story
 Every failure is recorded in the lessons store (law 11).
 """
@@ -80,7 +81,7 @@ class Workflow:
         self.lessons = lessons
         self.clock = clock
         self.reels = Reels(store.db)
-        self.buffer = buffer                  # drafts / story / live (dry-run stand-in while dry_run is on)
+        self.buffer = buffer                  # queue / story draft / live (dry-run stand-in while dry_run is on)
         self.buffer_stats = buffer_stats      # read-only: statistics and the owner's previous posts
         self.reel_writer = reel_writer
         self.places = places
@@ -624,7 +625,7 @@ class Workflow:
         self.store.set_status(video["id"], PUBLISHING)
         self.jobs.enqueue("reel_publish", {"video_id": video["id"]}, dedupe_key=f"reel_publish:{video['id']}")
         return Result(True, f"🖼 Muqovangiz qabul qilindi (o'zgartirilmasdan): «{video['title']}». GitHub va Buffer "
-                            f"qoralamalariga tayyorlanmoqda.{note}")
+                            f"navbatiga yuborilmoqda.{note}")
 
     def job_reel_publish(self, p: dict) -> None:
         video = self.store.video(p["video_id"])
@@ -648,8 +649,8 @@ class Workflow:
             style = publish.learn_style(self.claude_for_captions(), self.buffer_stats,
                                         self.settings.data_dir / "style" / "caption_style.md")
             captions = publish.write_captions(self.claude_for_captions(), script, style, self.cfg.language)
-            drafts = publish.create_drafts(self.buffer, captions, Path(render["video_path"]), self.public_files)
-            self.reels.upsert(video["id"], captions=captions, drafts=drafts)
+            drafts, states = publish.queue_posts(self.buffer, captions, Path(render["video_path"]), self.public_files)
+            self.reels.upsert(video["id"], captions=captions, drafts=drafts, buffer=states)
         self.store.set_status(video["id"], BUFFER_PENDING)
         self.reels.upsert(video["id"], step="buffer")
         self.outbox.add("buffer_ready", video_id=video["id"])
@@ -673,17 +674,12 @@ class Workflow:
 
     # ----------------------------------------------------------------------------------- 6. live + story
     def check_live(self, video: dict) -> bool:
-        """Read-only: has the owner's scheduled Instagram post gone live? Then the story draft (owner's cover)."""
+        """Read-only: has the queued Instagram post gone live? Then the story draft (owner's cover). Every check also
+        keeps each post's Buffer state (queued time / sent / link) for the website."""
         reel = self.reels.get(video["id"])
         if not reel or not reel.get("drafts") or self.buffer is None:
             return False
-        links = {}
-        for svc, pid in reel["drafts"].items():
-            p = self.buffer.post(pid)
-            if p.get("status") == "sent" and p.get("externalLink"):
-                links[svc] = p["externalLink"]
-        if links:
-            self.reels.upsert(video["id"], live_links=links)
+        links = self.refresh_buffer_state(video["id"], reel)
         link = links.get("instagram")
         if not link:
             return False
@@ -699,6 +695,39 @@ class Workflow:
         self.outbox.add("story_ready", video_id=video["id"])
         return True
 
+    def refresh_buffer_state(self, video_id: int, reel: dict) -> dict[str, str]:
+        """Read-only: each queued post's state in Buffer (queued time / sent / link), kept for the website.
+        Returns {service: live link} of the posts that went out."""
+        states, links = dict(reel.get("buffer") or {}), {}
+        for svc, pid in (reel.get("drafts") or {}).items():
+            p = self.buffer.post(pid)
+            states[svc] = publish.post_state(p) if p else {"status": "missing", "due_at": None, "sent_at": None,
+                                                              "link": None}
+            if p.get("status") == "sent" and p.get("externalLink"):
+                links[svc] = p["externalLink"]
+        fields: dict[str, Any] = {"buffer": states}
+        if links:
+            fields["live_links"] = links
+        self.reels.upsert(video_id, **fields)
+        return links
+
+    def _refresh_after_live(self, video: dict, now: datetime) -> None:
+        """After the Instagram post went live, the other platforms may still be waiting in Buffer's queue."""
+        reel = self.reels.get(video["id"])
+        states = (reel or {}).get("buffer") or {}
+        if not reel or self.buffer is None or not states or \
+                all(st.get("status") in ("sent", "missing") for st in states.values()):
+            return
+        key = f"live_check:{video['id']}"
+        last = self.kv.get(key)
+        if last and now - parse_iso(last) < timedelta(minutes=self.cfg.live_check_minutes):
+            return
+        self.kv.set(key, now.isoformat())
+        try:
+            self.refresh_buffer_state(video["id"], reel)
+        except Exception as exc:                              # noqa: BLE001 - checked again next time
+            log.warning("Buffer state check failed: %s", exc)
+
     def story_done(self, video_id: int) -> Result:
         video = self.store.video(video_id)
         if not video or video["status"] != STORY_PENDING:
@@ -709,6 +738,8 @@ class Workflow:
 
     def tick(self) -> None:
         now = self.clock()
+        for video in self.store.videos([STORY_PENDING, DONE], limit=20):
+            self._refresh_after_live(video, now)
         for video in self.store.videos(ACTIVE):
             if video["status"] == BUFFER_PENDING:
                 key = f"live_check:{video['id']}"

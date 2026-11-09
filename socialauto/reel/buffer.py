@@ -2,14 +2,14 @@
 access). Used for:
 - research: post metrics (views, shares, comments, averageTimeWatched…; personal keys only, refreshed ~daily);
 - caption style: the owner's previous sent posts;
-- DRAFTS for Instagram (reel), YouTube and LinkedIn: `createPost(saveToDraft: true)` — owner law 15: the bot NEVER
-  schedules or publishes. `saveToDraft: true` is hard-coded below; no argument can turn it off, no due time is ever
-  sent, and no other create/share mutation exists in this module. The owner approves and schedules in Buffer;
+- the QUEUE for Instagram (reel), YouTube and LinkedIn: owner law 15 (changed by the owner 2026-11-09): after the
+  owner approves the reel in Telegram, it is added to Buffer's queue (`mode: addToQueue`, automatic publishing) and
+  Buffer posts it at the channel's next free posting-schedule time. The bot never picks a time itself: no due time,
+  share-now or custom schedule is ever sent, and no other create/share mutation exists in this module;
 - live detection: Post.status == sent, sentAt, externalLink;
-- the story step: an Instagram story draft (cover image) with the reel link in the reminder sticker field
+- the story step: an Instagram story DRAFT (`saveToDraft: true`, cover image) with the reel link in the reminder sticker field
   (Buffer has no link-sticker field; Instagram's API cannot publish link stickers at all), plus a Telegram message;
-- renaming: `editPost` updates a DRAFT's text / YouTube title when the publish date changes (refused for any post that
-  is no longer a draft).
+- renaming: `editPost` updates a DRAFT's text / YouTube title (refused for any post that is no longer a draft).
 Errors: HTTP is always 200; fixable problems come back as typed MutationError members, system ones in `errors`.
 """
 
@@ -59,7 +59,7 @@ Q_POSTS = """query Posts($org: OrganizationId!, $status: [PostStatus!], $channel
 }""" % POST_FIELDS
 M_CREATE = """mutation Create($input: CreatePostInput!) {
   createPost(input: $input) {
-    ... on PostActionSuccess { post { id text status } }
+    ... on PostActionSuccess { post { id text status dueAt } }
     ... on MutationError { message }
   }
 }"""
@@ -75,6 +75,7 @@ class BufferClient(Protocol):
     dry_run: bool
 
     def channels(self) -> list[dict]: ...
+    def queue_post(self, channel: dict, text: str, video_url: str | None, metadata: dict) -> dict: ...
     def create_draft(self, channel: dict, text: str, video_url: str | None, image_url: str | None,
                      metadata: dict, reminder: bool = False) -> str: ...
     def edit_post(self, post_id: str, text: str | None = None, metadata: dict | None = None) -> None: ...
@@ -82,16 +83,31 @@ class BufferClient(Protocol):
     def sent_posts(self, limit: int = 30) -> list[dict]: ...
 
 
-def draft_input(channel_id: str, text: str, video_url: str | None, image_url: str | None, metadata: dict,
-                reminder: bool = False) -> dict:
-    """The one and only createPost input this project ever sends: always `saveToDraft: true`, never a due time."""
+def _assets(video_url: str | None, image_url: str | None) -> list[dict]:
     assets = []
     if video_url:
         assets.append({"video": {"url": video_url, "metadata": {"thumbnailOffset": 0}}})
     if image_url:
         assets.append({"image": {"url": image_url}})
-    inp = {"channelId": channel_id, "text": text, "schedulingType": "notification" if reminder else "automatic",
-           "mode": "addToQueue", "assets": assets}
+    return assets
+
+
+def queue_input(channel_id: str, text: str, video_url: str | None, metadata: dict) -> dict:
+    """The approved reel's createPost input: added to Buffer's queue, which posts it at the channel's next free
+    posting-schedule time. Never a due time / share-now / custom schedule; the fixed keys are set last."""
+    inp: dict[str, Any] = {"channelId": channel_id, "text": text, "assets": _assets(video_url, None)}
+    if metadata:
+        inp["metadata"] = metadata
+    inp.update({"schedulingType": "automatic", "mode": "addToQueue", "saveToDraft": False})
+    return inp
+
+
+def draft_input(channel_id: str, text: str, video_url: str | None, image_url: str | None, metadata: dict,
+                reminder: bool = False) -> dict:
+    """A DRAFT createPost input (the story step): always `saveToDraft: true`, never a due time."""
+    inp: dict[str, Any] = {"channelId": channel_id, "text": text,
+                           "schedulingType": "notification" if reminder else "automatic",
+                           "mode": "addToQueue", "assets": _assets(video_url, image_url)}
     if metadata:
         inp["metadata"] = metadata
     inp["saveToDraft"] = True                       # set last, so nothing above can ever override it
@@ -150,14 +166,20 @@ class GraphBuffer:
             data = self.gql(Q_CHANNELS, {"org": self.org()})["channels"]
         return [c for c in data if not c.get("isDisconnected")]
 
-    def create_draft(self, channel: dict, text: str, video_url: str | None, image_url: str | None,
-                     metadata: dict, reminder: bool = False) -> str:
-        """A DRAFT post. `reminder`: Instagram story drafts use Buffer's reminder publishing (the owner posts it)."""
-        inp = draft_input(channel["id"], text, video_url, image_url, metadata, reminder)
+    def _create(self, inp: dict) -> dict:
         res = self.gql(M_CREATE, {"input": inp})["createPost"]
         if "post" not in res:
             raise BufferError(res.get("message", "createPost failed"))
-        return res["post"]["id"]
+        return res["post"]
+
+    def queue_post(self, channel: dict, text: str, video_url: str | None, metadata: dict) -> dict:
+        """The approved reel into Buffer's queue. Returns {id, status, dueAt} (dueAt = the time Buffer picked)."""
+        return self._create(queue_input(channel["id"], text, video_url, metadata))
+
+    def create_draft(self, channel: dict, text: str, video_url: str | None, image_url: str | None,
+                     metadata: dict, reminder: bool = False) -> str:
+        """A DRAFT post (the story). `reminder`: Instagram story drafts use Buffer's reminder publishing (the owner posts it)."""
+        return self._create(draft_input(channel["id"], text, video_url, image_url, metadata, reminder))["id"]
 
     def edit_post(self, post_id: str, text: str | None = None, metadata: dict | None = None) -> None:
         """Edit a DRAFT only (text / metadata). Never touches scheduling."""
@@ -196,18 +218,26 @@ class GraphBuffer:
 
 
 class DryRunBuffer:
-    """No network (law 4): drafts are written to data/dryrun_posts.json; nothing ever goes live."""
+    """No network (law 4): queued posts and drafts are only written to data/dryrun_posts.json; nothing goes live."""
     dry_run = True
 
     def __init__(self, log_file: DryRunLog, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)):
         self.log = log_file
         self.clock = clock
-        self.live: set[str] = set()                  # tests mark drafts as "went live"
+        self.live: set[str] = set()                  # tests mark posts as "went live"
+        self.queued: set[str] = set()
 
     def channels(self) -> list[dict]:
         return [{"id": "dry-ig", "name": "Instagram", "service": "instagram"},
                 {"id": "dry-yt", "name": "YouTube", "service": "youtube"},
                 {"id": "dry-li", "name": "LinkedIn", "service": "linkedin"}]
+
+    def queue_post(self, channel: dict, text: str, video_url: str | None, metadata: dict) -> dict:
+        pid = "dryrun-buffer-" + secrets.token_hex(4)
+        self.log.append({"platform": f"buffer:{channel['service']}", "remote_id": pid, "kind": "queue",
+                         "input": queue_input(channel["id"], text, video_url, metadata)})
+        self.queued.add(pid)
+        return {"id": pid, "status": "scheduled"}       # the time is Buffer's; a dry run has none
 
     def create_draft(self, channel: dict, text: str, video_url: str | None, image_url: str | None,
                      metadata: dict, reminder: bool = False) -> str:
@@ -217,7 +247,7 @@ class DryRunBuffer:
         return pid
 
     def edit_post(self, post_id: str, text: str | None = None, metadata: dict | None = None) -> None:
-        if post_id in self.live:
+        if post_id in self.live or post_id in self.queued:
             raise BufferError("only drafts are edited by the bot; this post is no longer a draft")
         self.log.append({"platform": "buffer", "remote_id": post_id, "kind": "edit", "text": text,
                          "metadata": metadata or {}})
@@ -226,7 +256,8 @@ class DryRunBuffer:
         if post_id in self.live:
             return {"id": post_id, "status": "sent", "sentAt": self.clock().isoformat(),
                     "externalLink": "https://www.instagram.com/reel/dry-run-example/"}
-        return {"id": post_id, "status": "draft", "sentAt": None, "externalLink": None}
+        return {"id": post_id, "status": "scheduled" if post_id in self.queued else "draft", "sentAt": None,
+                "externalLink": None}
 
     def sent_posts(self, limit: int = 30, channel_ids: list[str] | None = None) -> list[dict]:
         return []
@@ -262,5 +293,5 @@ def top_posts(posts: list[dict], n: int = 5) -> list[dict]:
     return sorted(posts, key=views, reverse=True)[:n]
 
 
-__all__ = ["GraphBuffer", "DryRunBuffer", "BufferError", "BufferAuthError", "BufferRateLimit", "metric_summary",
+__all__ = ["GraphBuffer", "DryRunBuffer", "queue_input", "draft_input", "BufferError", "BufferAuthError", "BufferRateLimit", "metric_summary",
            "top_posts", "instagram_reel_meta", "youtube_meta", "story_meta", "json"]

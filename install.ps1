@@ -195,7 +195,7 @@ try {
             $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
                 -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew `
                 -StartWhenAvailable -RunOnlyIfNetworkAvailable:$false
-            $desc = "Social Automation ($kind). Never posts; Buffer drafts only."
+            $desc = "Social Automation ($kind). Approved reels go into the Buffer queue."
             # Start when the computer turns on, even before anyone logs in (S4U: no password stored). Windows allows
             # this from an administrator PowerShell; otherwise the task starts when this user logs in.
             $startup = $false
@@ -227,8 +227,8 @@ try {
     }
     Write-Host ""
     Write-Host "Tayyor! / Done! Sozlash sahifasi / Setup page: $url" -ForegroundColor Green
-    Write-Host "  Sinov rejimi yoqiq (dry_run): Buffer qoralamalari faqat yozib qo'yiladi. Bot hech qachon o'zi joylamaydi."
-    Write-Host "  Dry-run is on: Buffer drafts are only recorded. The bot never posts anything by itself."
+    Write-Host "  Sinov rejimi yoqiq (dry_run): Buffer'ga hech narsa yuborilmaydi. O'chirish: .venv\Scripts\python -m socialauto dry-run off"
+    Write-Host "  Dry-run is on: nothing is sent to Buffer. Turn it off: .venv\Scripts\python -m socialauto dry-run off"
     if (-not $NoOpen -and -not $NoService) { Start-Process $url }
 } catch {
     Fail "Kutilmagan xato / unexpected error: $($_.Exception.Message)" "O'rnatuvchini qayta ishga tushiring / run install.ps1 again."

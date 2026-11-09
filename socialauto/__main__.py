@@ -1,6 +1,6 @@
 """Command line: `python -m socialauto <command>`.
 
-    run                 the Telegram bot service (research, approvals, voice intake, render, Buffer drafts, analytics)
+    run                 the Telegram bot service (research, approvals, voice intake, render, Buffer queue, analytics)
     web                 the dashboard (http://localhost:8090)
     check               what is configured and what is missing (no secrets printed)
     youtube-auth        connect YouTube statistics (read-only browser consent, once)
@@ -8,6 +8,7 @@
     refresh-analytics   fetch statistics now
     new [topic]         queue a new idea (same as /new in Telegram)
     download-model      download + verify the Uzbek speech model into models/ (the installers run this)
+    dry-run on|off      test mode on this computer (off: approved reels really go into Buffer's queue)
 """
 
 from __future__ import annotations
@@ -61,7 +62,7 @@ def cmd_run(settings, config_path=None) -> int:
             if stop_claude.wait(1800):
                 return
     threading.Thread(target=claude_checks, name="claude-check", daemon=True).start()
-    log.info("Starting the bot (dry_run=%s; the bot never posts — Buffer drafts only)", settings.dry_run)
+    log.info("Starting the bot (dry_run=%s; approved reels go into Buffer's queue, Buffer posts them)", settings.dry_run)
     try:
         bot.run()
     finally:
@@ -88,9 +89,9 @@ def cmd_check(settings) -> int:
         ok = ok and good
         print(("  ✔ " if good else "  ✘ ") + text)
     print("Social Automation — check")
-    line(True, "mode: " + ("DRY-RUN (Buffer drafts are only recorded, not created)" if settings.dry_run
-                           else "Buffer drafts are created for real (the bot never posts or schedules)"))
-    line(bool(settings.buffer_api_key), "Buffer API key in .env (drafts, statistics)")
+    line(True, "mode: " + ("DRY-RUN (nothing is sent to Buffer, only recorded)" if settings.dry_run
+                           else "LIVE (approved reels go into Buffer's queue; Buffer posts them)"))
+    line(bool(settings.buffer_api_key), "Buffer API key in .env (queue, statistics)")
     line(bool(settings.telegram_token), "Telegram bot token in .env")
     line(bool(settings.allowed_user_ids), "Telegram allowed user id(s) in .env")
     line(bool(settings.dashboard_password), "dashboard password in .env")
@@ -107,7 +108,7 @@ def cmd_check(settings) -> int:
     from .platforms.tunnel import TunnelError, cloudflared_binary
     try:
         cloudflared_binary(settings.root)
-        line(True, "cloudflared installed (temporary public links for Buffer drafts)")
+        line(True, "cloudflared installed (temporary public links for Buffer)")
     except TunnelError:
         line(False, "cloudflared missing (optional): run the installer again")
     return 0 if ok else 1
@@ -147,11 +148,19 @@ def main(argv: list[str] | None = None) -> int:
         sub.add_parser(name)
     p_new = sub.add_parser("new")
     p_new.add_argument("topic", nargs="*")
+    p_dry = sub.add_parser("dry-run")
+    p_dry.add_argument("state", choices=["on", "off"])
     args = parser.parse_args(argv)
     if args.cmd == "download-model":                # before settings: works on a brand-new install
         from .model_download import download
         s = load_settings()
         return download(s.resolve(s.reel.stt_model))
+    if args.cmd == "dry-run":                       # this computer's own setting (config.local.toml)
+        s = load_settings()
+        set_local_value(s.root, None, "dry_run", args.state == "on")
+        print(f"dry_run = {'true' if args.state == 'on' else 'false'} saved in config.local.toml. "
+              "Restart the bot and the website to apply it.")
+        return 0
     settings = load_settings()
     setup_logging(settings.logs_dir, filename="web.log" if args.cmd == "web" else "socialauto.log")
     if args.cmd == "run":

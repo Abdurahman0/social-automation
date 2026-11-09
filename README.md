@@ -29,12 +29,13 @@ then the Setup page opens in your browser.
 
 Bitta Telegram bot **sizning o'z ovozingiz** bilan **suv va oqova suv** mavzusida qisqa vertikal reellar tayyorlaydi
 (o'zbek tilida), har bir qadamda sizdan tasdiq so'raydi va tasdiqlangan reelni Instagram, YouTube va LinkedIn uchun
-**Buffer qoralamasi** qilib qo'yadi. Shu kompyuterdagi sayt jonli statistika va ish jarayonini ko'rsatadi.
+**Buffer navbatiga** qo'shadi; Buffer uni o'z jadvali bo'yicha o'zi joylaydi. Shu kompyuterdagi sayt jonli statistika va ish jarayonini ko'rsatadi.
 Hammasi **sizning kompyuteringizda** ishlaydi; kalitlar faqat shu yerda saqlanadi.
 
 **Ikki asosiy qonun** ([CLAUDE.md](CLAUDE.md), 15 va 16):
-- bot **hech qachon o'zi joylamaydi va rejalashtirmaydi** — faqat Buffer qoralamasi va story qoralamasini tayyorlaydi;
-  Buffer'da tasdiqlab rejalashtirish va story'ni joylash sizda;
+- Telegram'da tasdiqlagan reelingiz **Buffer navbatiga** tushadi va Buffer uni har bir kanal jadvalidagi navbatdagi
+  bo'sh vaqtda joylaydi; bot vaqtni o'zi tanlamaydi va tarmoqlarga to'g'ridan-to'g'ri joylamaydi; story Buffer'da
+  qoralama bo'lib qoladi, uni o'zingiz joylaysiz;
 - bot **muqova yasamaydi** — muqovani sizdan so'raydi va o'zgartirmasdan ishlatadi.
 
 ### Kerak bo'ladi
@@ -69,7 +70,7 @@ Birinchi ochilganda sayt sizni **Sozlash** sahifasiga olib boradi:
 1. sayt paroli;
 2. Telegram bot tokeni va ID'ingiz («Tekshirish» botning nomini ko'rsatadi);
 3. **Buffer** kaliti — sizning Buffer'ingizga ulangan Instagram, YouTube, LinkedIn kanallari nomi va rasmi bilan
-   ko'rinadi (qoralamalar shularga tayyorlanadi);
+   ko'rinadi (tasdiqlangan reellar shularga navbatga qo'yiladi);
 4. **GitHub** — «GitHub'ni ulash»: sayt qisqa kod ko'rsatadi, siz github.com/login/device'da kiritasiz (parol bu
    saytga yozilmaydi). Reellar sizning akkauntingizdagi yopiq `social-automation-content` reposiga yuklanadi (ilova
    uni o'zi yaratadi). Muqobil: faqat shu repo uchun «Contents: read and write» huquqli fine-grained token;
@@ -118,11 +119,11 @@ git pull --ff-only
 Fon xizmatlari o'chiriladi; papka, `.env` va ma'lumotlar qoladi (to'liq o'chirish uchun papkani o'chiring).
 
 ### Xavfsizlik
-- **Sinov rejimi** (`dry_run = true`) har bir yangi o'rnatishda yoqiq: Buffer qoralamalari ham haqiqatda yaratilmaydi,
-  faqat `data/dryrun_posts.json` ga yoziladi. O'chirish: `config.local.toml` faylida `dry_run = false` (bu fayl
-  sizniki, git'ga tushmaydi va yangilanishga xalaqit bermaydi).
+- **Sinov rejimi** (`dry_run = true`) har bir yangi o'rnatishda yoqiq: Buffer'ga hech narsa yuborilmaydi,
+  faqat `data/dryrun_posts.json` ga yoziladi. O'chirish: `python -m socialauto dry-run off`, keyin bot va saytni qayta
+  ishga tushiring (sozlama `config.local.toml` ga yoziladi; u sizniki, git'ga tushmaydi).
 - Reellar dastur kodi reposiga **hech qachon** yozilmaydi (himoya testi `tests/test_content_repo.py`).
-- Bot joylash, yuklash yoki rejalashtirish kodiga ega emas (himoya testi `tests/test_guards.py`).
+- Bot tarmoqlarga to'g'ridan-to'g'ri yuklash/joylash kodiga ega emas va vaqtni o'zi tanlamaydi (himoya testi `tests/test_guards.py`).
 - Sir kalitlar faqat `.env` va `secrets/` da (git'ga tushmaydi), loglarga yozilmaydi.
 
 Egasining qadamlari: [docs/OWNER_TODO.md](docs/OWNER_TODO.md) · qarorlar: [docs/DECISIONS.md](docs/DECISIONS.md)
@@ -135,11 +136,12 @@ Egasining qadamlari: [docs/OWNER_TODO.md](docs/OWNER_TODO.md) · qarorlar: [docs
 > only downloads updates from here; your reels go to your own GitHub.
 
 One Telegram bot that makes short vertical reels **with your own voice** about **water and wastewater** (in Uzbek),
-asks you at every step, and prepares each approved reel as **Buffer drafts** for Instagram, YouTube and LinkedIn. A
+asks you at every step, and adds each approved reel to **Buffer's queue** for Instagram, YouTube and LinkedIn; Buffer posts it on its own schedule. A
 local website shows live statistics and the pipeline. Everything runs **on your own computer**; keys stay there.
 
-**Two laws shape everything** ([CLAUDE.md](CLAUDE.md) 15 and 16): the bot **never publishes or schedules anything**
-(Buffer drafts and a story draft only — you approve and schedule in Buffer), and it **never makes a cover** (it asks
+**Two laws shape everything** ([CLAUDE.md](CLAUDE.md) 15 and 16): approved reels go into **Buffer's queue** and
+Buffer posts them at each channel's next free time (the bot never picks a time or posts on a platform directly; the story
+stays a Buffer draft), and it **never makes a cover** (it asks
 for yours and uses it unchanged).
 
 ### Requirements
@@ -192,7 +194,7 @@ Terminal: `.venv/bin/python -m socialauto check` shows what is configured and wh
 ```
 install.sh install.ps1                           one-command installers (scripts/windows_service.ps1: Windows keep-alive)
 socialauto/
-  workflow.py                                    the flow (research → … → Buffer drafts → story draft)
+  workflow.py                                    the flow (research → … → Buffer queue → story draft)
   reel/      research writer script broll align layout render checklist publish buffer naming state
   platforms/ youtube.py instagram.py             READ-ONLY statistics clients; tunnel.py dryrun.py
   runner.py                                      bot service: waits for the token, restarts on .env change, Claude alert

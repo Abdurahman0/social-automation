@@ -241,6 +241,17 @@ def _remove_direct_posting(conn) -> None:
 MIGRATIONS.append([_remove_direct_posting])
 
 
+def _add_buffer_state(conn) -> None:
+    """Approved reels go into Buffer's queue (owner, 2026-11-09): the last known state of each queued post
+    ({service: {status, due_at, sent_at, link}}) is kept for the website."""
+    have = {r[1] for r in conn.execute("PRAGMA table_info(reels)")}
+    if "buffer_json" not in have:
+        conn.execute("ALTER TABLE reels ADD COLUMN buffer_json TEXT NOT NULL DEFAULT '{}'")
+
+
+MIGRATIONS.append([_add_buffer_state])
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
 

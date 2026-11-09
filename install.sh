@@ -219,7 +219,7 @@ elif [ "$OS" = Linux ]; then
   mkdir -p "$UNIT_DIR"
   cat > "$UNIT_DIR/social-automation.service" <<EOF
 [Unit]
-Description=Social Automation — Telegram bot and reel pipeline (Buffer drafts only, never posts)
+Description=Social Automation — Telegram bot and reel pipeline (approved reels go into the Buffer queue)
 After=network-online.target
 Wants=network-online.target
 
@@ -301,8 +301,8 @@ if [ "$SERVICE" = 1 ]; then
   for _ in $(seq 1 30); do curl -fsS -o /dev/null "http://127.0.0.1:$PORT/api/session" 2>/dev/null && break; sleep 1; done
 fi
 printf '\n%sTayyor! / Done!%s Sozlash sahifasi / Setup page: %s\n' "$G$B" "$N" "$URL"
-echo "  Sinov rejimi yoqiq (dry_run): Buffer qoralamalari faqat yozib qo'yiladi. Bot hech qachon o'zi joylamaydi."
-echo "  Dry-run is on: Buffer drafts are only recorded. The bot never posts anything by itself."
+echo "  Sinov rejimi yoqiq (dry_run): Buffer'ga hech narsa yuborilmaydi. O'chirish: python -m socialauto dry-run off"
+echo "  Dry-run is on: nothing is sent to Buffer. Turn it off: python -m socialauto dry-run off"
 if [ "$OPEN" = 1 ] && [ "$SERVICE" = 1 ]; then
   if [ "$OS" = Darwin ]; then open "$URL" >/dev/null 2>&1 || true
   elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" >/dev/null 2>&1 || true; fi

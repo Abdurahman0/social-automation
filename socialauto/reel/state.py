@@ -20,7 +20,7 @@ STATUS_STAGE = {
     DRAFTING: ("script", "Bot"), REVISING: ("script", "Bot"), SCRIPT_PENDING: ("script", "Siz"),
     VOICE_WAITING: ("script", "Siz"), VOICE_CHECK: ("script", "Siz"), VOICE_PROCESSING: ("edit", "Bot"),
     RENDERING: ("edit", "Bot"), VIDEO_PENDING: ("edit", "Siz"),
-    COVER_WAITING: ("publish", "Siz"), PUBLISHING: ("publish", "Bot"), BUFFER_PENDING: ("publish", "Siz"),
+    COVER_WAITING: ("publish", "Siz"), PUBLISHING: ("publish", "Bot"), BUFFER_PENDING: ("publish", "Bot"),
     STORY_PENDING: ("live", "Siz"), DONE: ("live", "Bot"),
 }
 
@@ -34,12 +34,13 @@ class Reels:
     def get(self, video_id: int) -> dict[str, Any] | None:
         row = self.db.one("SELECT * FROM reels WHERE video_id=?", (video_id,))
         if row:
-            for k in ("topics_json", "captions_json", "drafts_json", "fix_notes_json", "checklist_json", "live_links_json"):
+            for k in ("topics_json", "captions_json", "drafts_json", "fix_notes_json", "checklist_json", "live_links_json",
+                      "buffer_json"):
                 row[k[:-5]] = json.loads(row.pop(k) or "null")
         return row
 
     def upsert(self, video_id: int, **fields: Any) -> None:
-        for k in ("topics", "captions", "drafts", "fix_notes", "checklist", "live_links"):
+        for k in ("topics", "captions", "drafts", "fix_notes", "checklist", "live_links", "buffer"):
             if k in fields:
                 fields[f"{k}_json"] = json.dumps(fields.pop(k), ensure_ascii=False)
         if not self.db.one("SELECT 1 FROM reels WHERE video_id=?", (video_id,)):

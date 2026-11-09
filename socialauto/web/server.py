@@ -278,6 +278,80 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
             cols.append({"key": key, "label": label, "items": items})
         return {"columns": cols, "dry_run": settings.dry_run}
 
+    # --- approved reels (the owner pressed Approve on the video; from there they go into Buffer's queue) --------
+    APPROVED = ("cover_waiting", "publishing", "buffer_pending", "story_pending", "done")
+    PLATFORM_NAMES = {"instagram": "Instagram", "youtube": "YouTube", "linkedin": "LinkedIn"}
+    BUFFER_UZ = {"scheduled": "Navbatda", "sending": "Joylanmoqda", "sent": "Chiqdi", "draft": "Buffer'da qoralama",
+                 "needs_approval": "Buffer'da tasdiq kutilmoqda", "error": "Buffer xatosi",
+                 "missing": "Buffer'dan o'chirilgan"}
+
+    def when_text(value: str | None) -> str | None:
+        return slots.describe(settings.schedule, parse_iso(value)) if value else None
+
+    def buffer_rows(v: dict, r: dict) -> list[dict]:
+        """One row per platform the reel went to: its Buffer state in words, the time, the live link."""
+        states, live = r.get("buffer") or {}, r.get("live_links") or {}
+        rows = []
+        for svc in (r.get("drafts") or {}):
+            st = states.get(svc) or {}
+            status = st.get("status") or ("sent" if live.get(svc) else "scheduled")
+            if str((r.get("drafts") or {}).get(svc, "")).startswith("dryrun-"):     # made while dry_run was on
+                label = "Sinov rejimi — Buffer'ga yuborilmagan"
+            else:
+                label = BUFFER_UZ.get(status, "Buffer'da")
+            rows.append({"platform": svc, "name": PLATFORM_NAMES.get(svc, svc.title()), "status": status, "label": label,
+                         "when": when_text(st.get("sent_at") if status == "sent" else st.get("due_at")),
+                         "link": live.get(svc) or (st.get("link") if status == "sent" else None)})
+        return rows
+
+    def reel_media(v: dict, r: dict) -> dict:
+        render = store.render(v["render_id"]) if v.get("render_id") else None
+        video_ok = bool(render and render.get("video_path") and Path(render["video_path"]).exists())
+        cover_ok = bool(r.get("cover_path") and Path(r["cover_path"]).exists())
+        key = reel_key(v["id"])
+        return {"video_url": f"/media/reelvideo/{key}" if video_ok else None,
+                "cover_url": f"/media/reelcover/{key}" if cover_ok else None}
+
+    @app.get("/api/approved")
+    def approved(request: Request) -> dict:
+        authed(request)
+        from ..reel.state import Reels
+        reels = Reels(db)
+        items = []
+        for v in store.videos(APPROVED, limit=300):
+            r = reels.get(v["id"]) or {}
+            items.append({"key": reel_key(v["id"]), "title": v["title"] or "Reel", "status": STATUS_UZ.get(v["status"], ""),
+                          "date": r.get("base", "")[:10] or None,
+                          "platforms": buffer_rows(v, r), **reel_media(v, r)})
+        return {"items": items, "dry_run": settings.dry_run}
+
+    def reel_file(key: str, which: str) -> Path:
+        from ..reel.state import Reels
+        v = reel_video(key)
+        if not v or v["status"] not in APPROVED:
+            raise HTTPException(status_code=404, detail="not_found")
+        r = Reels(db).get(v["id"]) or {}
+        if which == "cover":
+            path = r.get("cover_path")
+        else:
+            render = store.render(v["render_id"]) if v.get("render_id") else None
+            path = render.get("video_path") if render else None
+        if not path or not Path(path).exists():
+            raise HTTPException(status_code=404, detail="not_found")
+        return Path(path)
+
+    @app.get("/media/reelvideo/{key}")
+    def reel_video_file(request: Request, key: str):
+        authed(request)
+        return FileResponse(reel_file(key, "video"), media_type="video/mp4", headers={"Cache-Control": "private, max-age=600"})
+
+    @app.get("/media/reelcover/{key}")
+    def reel_cover_file(request: Request, key: str):
+        authed(request)
+        path = reel_file(key, "cover")
+        media = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+        return FileResponse(path, media_type=media, headers={"Cache-Control": "private, max-age=600"})
+
     @app.get("/api/reels/{key}")
     def reel_detail(request: Request, key: str) -> dict:
         authed(request)
@@ -325,6 +399,11 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
             "drafts": [names.get(k, k) for k in (r.get("drafts") or {})], "git": r.get("git_note"),
             "live": r.get("live_link"), "story": bool(r.get("story_draft")), "fixes": r.get("fix_notes") or [],
             "cover": bool(r.get("cover_path")),
+            "approved": v["status"] in APPROVED, "buffer": buffer_rows(v, r) if v["status"] in APPROVED else [],
+            "captions": {k: (r.get("captions") or {}).get(k) for k in
+                         ("instagram", "youtube_title", "youtube_description", "linkedin", "story_text")}
+            if r.get("captions") else None,
+            **(reel_media(v, r) if v["status"] in APPROVED else {"video_url": None, "cover_url": None}),
             "dry_run": settings.dry_run,
         }
 

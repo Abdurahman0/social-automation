@@ -1,8 +1,8 @@
-"""Owner laws 15 and 16 as tests: the bot never publishes/uploads/schedules, and never makes a cover.
+"""Owner laws 15 and 16 as tests: the bot never posts on a platform directly or picks a time, and never makes a cover.
 
-1. The package (and the scripts, the Remotion composition and the website) must not contain any publish / upload /
-   schedule endpoint or method, nor a cover / thumbnail generator.
-2. Every Buffer create call carries `saveToDraft: true`, with no way to turn it off and no due time.
+1. The package (and the scripts, the Remotion composition and the website) must not contain any platform publish /
+   upload endpoint, Buffer share-now / custom-schedule / due time, nor a cover / thumbnail generator.
+2. An approved reel goes into Buffer's queue (`addToQueue`, automatic): Buffer picks the time. The story is a draft.
 """
 
 import ast
@@ -25,7 +25,6 @@ FORBIDDEN = {
     r"media_type\"?\s*[:=]\s*\"?(REELS|STORIES)": "an Instagram media container",
     r"shareNow|shareNext|customScheduled": "a Buffer share / schedule mode",
     r"\bdueAt\s*[\"']?\s*:": "a Buffer due time",
-    r"saveToDraft\"?\s*:\s*False|saveToDraft\"?\s*=\s*False": "a non-draft Buffer post",
     r"post_now|publish_direct|retry_failed_post|\bPublisher\b|def book\(": "the removed direct-posting path",
     r"youtube_thumbnail|instagram_cover|make_thumbnail|thumbnails\.py|from \.+video import thumbnails": "a cover generator",
     r"image\.pollinations|PollinationsProvider": "AI image generation",
@@ -68,15 +67,20 @@ def test_removed_modules_are_gone():
         assert not (ROOT / rel).exists(), rel
 
 
-def test_every_buffer_create_is_a_draft():
+def test_buffer_creates_queue_or_draft_never_a_time():
     from socialauto.reel import buffer
-    inp = buffer.draft_input("c", "t", "https://x/v.mp4", None, {"instagram": {"type": "reel", "shouldShareToFeed": True}})
+    q = buffer.queue_input("c", "t", "https://x/v.mp4", {"instagram": {"type": "reel", "shouldShareToFeed": True}})
+    assert q["mode"] == "addToQueue" and q["schedulingType"] == "automatic" and "dueAt" not in q
+    nasty = buffer.queue_input("c", "t", None, {"mode": "shareNow", "dueAt": "2030-01-01"})
+    assert nasty["mode"] == "addToQueue" and "dueAt" not in nasty           # metadata cannot pick a time
+    inp = buffer.draft_input("c", "t", None, "https://x/c.jpg", {"instagram": {"type": "story"}}, reminder=True)
     assert inp["saveToDraft"] is True and "dueAt" not in inp and inp["mode"] == "addToQueue"
     nasty = buffer.draft_input("c", "t", None, None, {"saveToDraft": False, "dueAt": "2030-01-01"})
     assert nasty["saveToDraft"] is True and "dueAt" not in nasty            # metadata cannot switch it off
-    sig = inspect.signature(buffer.draft_input)
-    assert not any(p in sig.parameters for p in ("save_to_draft", "draft", "due_at", "mode", "schedule"))
-    # the only mutations in the module: createPost (drafts) and editPost (drafts only)
+    for fn in (buffer.draft_input, buffer.queue_input):
+        sig = inspect.signature(fn)
+        assert not any(p in sig.parameters for p in ("save_to_draft", "draft", "due_at", "mode", "schedule", "when"))
+    # the only mutations in the module: createPost (queue / story draft) and editPost (drafts only)
     src = Path(buffer.__file__).read_text()
     assert set(re.findall(r"mutation \w+\(\$input: (\w+)!\)", src)) == {"CreatePostInput", "EditPostInput"}
     assert "createPost(input: $input)" in src and "deletePost" not in src
@@ -106,11 +110,12 @@ def test_buffer_create_payload_over_http_is_a_draft(tmp_path):
     http = HTTP()
     b = GraphBuffer("k", session=http)
     ch = b.channels()[0]
-    b.create_draft(ch, "reel", "https://x/v.mp4", None, {"instagram": {"type": "reel", "shouldShareToFeed": True}})
     b.create_draft(ch, "story", None, "https://x/c.jpg", {"instagram": {"type": "story", "shouldShareToFeed": False}},
                    reminder=True)
+    b.queue_post(ch, "reel", "https://x/v.mp4", {"instagram": {"type": "reel", "shouldShareToFeed": True}})
     creates = [c["variables"]["input"] for c in http.calls if "createPost" in c["query"]]
-    assert len(creates) == 2 and all(i["saveToDraft"] is True and "dueAt" not in i for i in creates)
+    assert len(creates) == 2 and all("dueAt" not in i and i["mode"] == "addToQueue" for i in creates)
+    assert creates[0]["saveToDraft"] is True and creates[1]["schedulingType"] == "automatic"
 
 
 def test_buffer_edits_only_drafts(tmp_path):

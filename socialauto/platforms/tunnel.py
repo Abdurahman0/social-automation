@@ -1,4 +1,4 @@
-"""Temporary public links for Buffer drafts (Buffer fetches the draft's video / the story's cover from a public URL).
+"""Temporary public links for Buffer (Buffer fetches the reel's video / the story's cover from a public URL).
 
 A tiny local HTTP server serves ONLY the files registered for one post, each under a random unguessable path, and a
 free Cloudflare quick tunnel (`cloudflared tunnel --url http://127.0.0.1:<port>`, no account, random

@@ -139,3 +139,44 @@ def test_security_headers(web):
     assert r.headers["x-frame-options"] == "DENY" and r.headers["x-content-type-options"] == "nosniff"
     assert COOKIE == "sa_session"
     assert timedelta  # noqa
+
+
+def test_approved_reels_page_shows_buffer_queue_media_and_texts(web, app, tmp_path):
+    from PIL import Image
+    from socialauto.reel.state import Reels
+    client, _ = web
+    login(client)
+    vid = app.store.create_video("buffer_pending", slot_at=datetime(2026, 11, 10, 14, tzinfo=UTC))
+    app.store.add_script(vid, {"title": "Orol dengizi suvi", "topic": "suv"})
+    render_id, _ = app.store.add_render(vid, 1, None)
+    video = tmp_path / "2026-11-10-orol_v1.mp4"
+    video.write_bytes(b"\x00\x00\x00\x18ftypmp42")
+    cover = tmp_path / "2026-11-10-orol_cover.jpg"
+    Image.new("RGB", (1080, 1920), (10, 80, 160)).save(cover)
+    app.store.update_render(render_id, status="ready", video_path=str(video))
+    app.store.update_video(vid, render_id=render_id)
+    Reels(app.db).upsert(vid, base="2026-11-10-orol", version=1, cover_path=str(cover),
+                         captions={"instagram": "IG matn #suv", "youtube_title": "Orol", "youtube_description": "YT",
+                                   "linkedin": "LI", "story_text": "Yangi reel"},
+                         drafts={"instagram": "buf-1", "youtube": "buf-2"},
+                         buffer={"instagram": {"status": "sent", "due_at": None, "sent_at": "2026-11-10T14:00:00+00:00",
+                                               "link": "https://www.instagram.com/reel/abc/"},
+                                 "youtube": {"status": "scheduled", "due_at": "2026-11-11T13:00:00+00:00",
+                                             "sent_at": None, "link": None}})
+    app.store.create_video("voice_waiting")                                    # not approved: not on the page
+    data = client.get("/api/approved").json()
+    assert len(data["items"]) == 1
+    item = data["items"][0]
+    assert item["title"] == "Orol dengizi suvi" and item["status"] == "Buffer navbatida — o'z vaqtida chiqadi"
+    rows = {p["platform"]: p for p in item["platforms"]}
+    assert rows["instagram"]["label"] == "Chiqdi" and rows["instagram"]["link"] == "https://www.instagram.com/reel/abc/"
+    assert rows["youtube"]["label"] == "Navbatda" and rows["youtube"]["when"] == "11-noyabr, 18:00"
+    text = json.dumps(data)
+    assert "buf-1" not in text and str(cover) not in text and '"id"' not in text          # no internal ids or paths
+    assert client.get(item["cover_url"]).content == cover.read_bytes()
+    assert client.get(item["video_url"]).content == video.read_bytes()
+    detail = client.get(f"/api/reels/{item['key']}").json()
+    assert detail["approved"] and detail["captions"]["instagram"] == "IG matn #suv" and detail["video_url"]
+    assert [b["name"] for b in detail["buffer"]] == ["Instagram", "YouTube"]
+    client.cookies.clear()
+    assert client.get(item["cover_url"]).status_code == 401
