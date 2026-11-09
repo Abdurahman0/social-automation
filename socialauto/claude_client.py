@@ -32,7 +32,12 @@ log = logging.getLogger(__name__)
 
 _ENV_ALLOWLIST = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TERM", "TZ", "TMPDIR",
                   "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy",
-                  "SSL_CERT_FILE", "SSL_CERT_DIR"}
+                  "SSL_CERT_FILE", "SSL_CERT_DIR",
+                  # Windows: without these the CLI cannot find the user profile, temp dir or even start networking
+                  # (os.environ keys are upper-case on Windows)
+                  "SYSTEMROOT", "WINDIR", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "USERPROFILE", "USERNAME",
+                  "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES",
+                  "PROGRAMFILES(X86)", "TEMP", "TMP", "OS", "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS"}
 _ENV_ALLOWED_PREFIXES = ("LC_", "XDG_")
 _DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", "Task",
                  "Read", "Glob", "Grep"]
