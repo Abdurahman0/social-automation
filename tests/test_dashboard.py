@@ -78,7 +78,7 @@ def test_connect_state_has_no_numbers(web):
     login(client)
     ov = client.get("/api/overview").json()
     assert ov["combined"] is None
-    assert ov["status"]["platforms"]["youtube"] == {"connected": False, "updated_minutes": None, "problem": None}
+    assert ov["status"]["platforms"]["youtube"] == {"connected": False, "source": None, "updated_minutes": None, "problem": None}
     assert ov["status"]["dry_run"] is True
     assert client.get("/api/videos").json() == {"videos": []}
 

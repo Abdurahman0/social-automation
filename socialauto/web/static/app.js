@@ -646,10 +646,12 @@ function shell(active, title, sub, controls, body) {
   $app.replaceChildren(h("div", { class: "shell" }, side, main), nav("bottom-nav"));
   window.scrollTo(0, keep);
 }
+// A platform has numbers when it is connected directly or (fallback) its posts are read through Buffer.
+function hasStats(p) { return p.connected || p.source === "buffer"; }
 function updatedNode(st) {
-  const ms = Object.values(st.platforms).filter((p) => p.connected).map((p) => p.updated_minutes).filter((m) => m !== null);
+  const ms = Object.values(st.platforms).filter(hasStats).map((p) => p.updated_minutes).filter((m) => m !== null);
   const m = ms.length ? Math.max(...ms) : null;
-  const anyConnected = Object.values(st.platforms).some((p) => p.connected);
+  const anyConnected = Object.values(st.platforms).some(hasStats);
   if (!anyConnected) return h("span", { class: "updated", text: "Hisoblar hali ulanmagan" });
   return h("span", { class: "updated" }, h("span", { class: "pulse" }), agoText(m));
 }
@@ -661,6 +663,8 @@ function refreshButton(after) {
 function banners(st) {
   const out = [];
   if (st.dry_run) out.push(h("div", { class: "banner" }, h("span", { text: "🧪" }), h("div", {}, h("b", { text: "Sinov rejimi yoqilgan. " }), "Buffer qoralamalari haqiqatda yaratilmaydi — faqat yozib qo'yiladi. Bot hech qachon o'zi joylamaydi yoki rejalashtirmaydi: Buffer'da qoralama tayyor bo'lgach, tasdiqlab rejalashtirish sizda.")));
+  const viaBuffer = Object.entries(st.platforms).filter(([, info]) => !info.connected && info.source === "buffer").map(([p]) => PF[p].name);
+  if (viaBuffer.length) out.push(h("div", { class: "banner" }, h("span", { text: "📊" }), h("div", {}, h("b", { text: `${viaBuffer.join(" va ")} statistikasi Buffer orqali. ` }), "Faqat Buffer'dan chiqqan postlar: ko'rish, layk, izoh, ulashish, saqlash, qamrov va o'rtacha tomosha. Buffer ularni kuniga taxminan bir marta yangilaydi. Obunachilar soni, kunlik grafik va retention uchun hisobni to'g'ridan-to'g'ri ulang (Sozlamalar).")));
   for (const [p, info] of Object.entries(st.platforms)) if (info.problem === "auth") out.push(h("div", { class: "banner" }, h("span", { text: "🔑" }), h("div", {}, h("b", { text: `${PF[p].name} ruxsati tugagan. ` }), "Statistika eski ko'rinishda qoldi. Qayta ulash: ", h("code", { text: `.venv/bin/python -m socialauto ${p === "youtube" ? "youtube-auth" : "instagram-connect"}` }))));
   return out;
 }
@@ -767,7 +771,7 @@ async function renderVideos() {
     let rows = data.videos.filter((v) => (!q || v.title.toLowerCase().includes(q)) && (platform === "all" || v[platform]));
     rows = rows.slice().sort(SORTS[state.sort][1]);
     if (!data.videos.length) {
-      tableBox.replaceChildren(h("div", { class: "chart-empty", text: Object.values(st.platforms).some((p) => p.connected) ? "Videolar statistikasi yig'ilmoqda…" : "Hisoblar ulangach, har bir video statistikasi shu yerda ko'rinadi. Hech qanday soxta raqam ko'rsatilmaydi." }));
+      tableBox.replaceChildren(h("div", { class: "chart-empty", text: Object.values(st.platforms).some(hasStats) ? "Videolar statistikasi yig'ilmoqda…" : "Hisoblar ulangach, har bir video statistikasi shu yerda ko'rinadi. Hech qanday soxta raqam ko'rsatilmaydi." }));
       return;
     }
     if (!rows.length) { tableBox.replaceChildren(h("div", { class: "chart-empty", text: "Hech narsa topilmadi." })); return; }

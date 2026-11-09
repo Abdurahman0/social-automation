@@ -54,7 +54,7 @@ Q_CHANNELS_VIEW = """query Channels($org: OrganizationId!) {
 Q_POSTS = """query Posts($org: OrganizationId!, $status: [PostStatus!], $channels: [ChannelId!], $after: String, $first: Int) {
   posts(after: $after, first: $first, input: { organizationId: $org, filter: { status: $status, channelIds: $channels } }) {
     pageInfo { endCursor hasNextPage }
-    edges { node { %s metrics { type name value unit } } }
+    edges { node { %s metrics { type name value unit } assets { thumbnail } } }
   }
 }""" % POST_FIELDS
 M_CREATE = """mutation Create($input: CreatePostInput!) {

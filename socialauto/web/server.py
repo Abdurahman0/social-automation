@@ -185,7 +185,7 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
         out = {}
         for p, connected in collector.connected().items():
             upd = kv.get(UPDATED_KEY.format(p))
-            out[p] = {"connected": connected,
+            out[p] = {"connected": connected, "source": collector.source(p),
                       "updated_minutes": int((now - parse_iso(upd)).total_seconds() // 60) if upd else None,
                       "problem": {"auth": "auth"}.get(kv.get(f"analytics:{p}:error") or "", None)
                       if kv.get(f"analytics:{p}:error") else None}
