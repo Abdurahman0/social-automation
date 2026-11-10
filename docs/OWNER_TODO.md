@@ -105,3 +105,29 @@ Tarix to'liq tekshirildi va toza: sir, shaxsiy yo'l, reel/video/ovozingiz, `proo
    `irm https://raw.githubusercontent.com/Abdurahman0/social-automation/main/install.ps1 | iex`
 
 Bilib qo'ying: ochiq repoda commitlar muallifi sifatida kompyuteringizdagi git sozlamasidagi ism va email ko'rinadi.
+
+## 16. Javohir uchun (Doktor H₂O) — o'z kompyuterida, o'z akkauntlari bilan (Task 09)
+Bu qadamlarni **Javohir o'zi** qiladi (sizning akkauntlaringiz kerak emas). Uning `the-suvyektiv-media` reposiga
+ilova faqat yangi reel papkasini va `posted.md` ga bitta qatorni qo'shadi; boshqa fayllariga tegmaydi, `--force` yo'q.
+1. **O'rnatish.** Linux/macOS terminalida:
+   `curl -fsSL https://raw.githubusercontent.com/Abdurahman0/social-automation/main/install.sh | bash`
+   Windows (PowerShell):
+   `irm https://raw.githubusercontent.com/Abdurahman0/social-automation/main/install.ps1 | iex`
+   Oxirida sayt ochiladi (http://localhost:8090) — parol o'ylab topib kiriting.
+2. **Telegram.** @BotFather → `/newbot` → bot tokenini Sozlash → Telegram qadamiga qo'ying; o'z Telegram ID raqamingizni
+   (@userinfobot) ham yozing. Bot faqat sizga yozadi.
+3. **Buffer.** buffer.com'da Instagram (@suvyektiv), YouTube (Doktor H₂O) va LinkedIn'ni ulang → Settings → API →
+   kalitni Sozlash → Buffer qadamiga qo'ying. Kanallaringiz ro'yxati chiqsa — tayyor.
+4. **GitHub.** Sozlash → GitHub → «GitHub'ni ulash» → chiqqan qisqa kodni github.com/login/device ga kiriting →
+   **Authorize** (eraliyev-j akkaunti bilan). Keyin **«Mavjud repomni ulash»** ni tanlang → ro'yxatdan
+   **eraliyev-j/the-suvyektiv-media** ni bosing (yoki havolasini qo'ying). Repo kompyuterga videolarsiz yuklanadi
+   (~50 MB); sahifada «Reellar «eraliyev-j/the-suvyektiv-media» reposiga boradi · 17 ta reel» ko'rinadi.
+5. **Claude.** Sozlash → Claude → «Claude'ga kirish» → o'z Claude obunangiz bilan kiring (API kalit kerak emas).
+6. **Sinov rejimi.** Hammasi ulangach, bir reelni sinab ko'ring; tayyor bo'lsangiz terminalda
+   `python -m socialauto dry-run off` (sinov rejimida Buffer'ga ham, `posted.md` ga ham hech narsa yozilmaydi).
+
+Shuni biling: bot sizning `brand/voice.md`, `guidance-book.md` va `doktor-h2o-*` skilllaringizni o'qiydi (faqat o'qiydi)
+va ssenariyni ular bo'yicha yozadi: reel 30–45 soniya, raqamlar faqat manbadan, sizning CTA'ingiz. Yangi reel
+`reels/<sana>-<mavzu>/reel.mp4`, `cover.jpg` (o'zingiz yuborgan muqova, o'zgarishsiz), `script.md` (soniyali ovoz
+matni, manbalar, caption) bo'lib qo'shiladi. Agar shu payt o'zingiz ham repoga yozgan bo'lsangiz, bot sizning
+o'zgarishingiz ustiga qo'shadi; to'qnashuv bo'lsa — reelni kompyuterda saqlab, Telegram'da aytadi.

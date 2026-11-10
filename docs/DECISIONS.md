@@ -223,3 +223,22 @@ Each can be changed; the config line or file is named.
   "Tizim" follows OS changes live (cross-fade, no wave: there is no clicked point).
 - **Proof** `scripts/theme_check.py` (56 checks). Playwright's own video recorder needs an extra download, so the
   GIF is built from frames of the frozen wave every 36 ms with the system ffmpeg (sharper and deterministic).
+
+## Task 09 — connecting a user's existing content repo
+- **Choice saved per computer** in `config.local.toml` (`content_mode`, `content_existing`); `ContentRepo` re-reads it
+  on every call, so the website's choice reaches the running bot without a restart.
+- **No repo is created at GitHub login any more** while nothing is chosen: the user picks «Yangi» (then the private
+  repo is created) or «Mavjud» — so Javohir does not get an empty extra repo.
+- **Partial + sparse clone** (`--filter=blob:limit=1m`, videos/audio excluded): his repo is ~630 MB, the clone ~50 MB.
+  New reel files are added with `git add --sparse`.
+- **Sync = fetch, then fast-forward or rebase; never --force.** A rejected push is fetched and rebased again (3 tries).
+  On a conflict the rebase is aborted, our commit stays on `socialauto/kutilmoqda/<folder>`, main follows his history,
+  and the next publish tries to cherry-pick it again.
+- **His layout** is detected from the tree (`reels/<date>-<topic>/reel.mp4|cover.jpg`); a same-named folder of his
+  is never overwritten (`<folder>-2`). He does not use LFS, so we don't either (only above GitHub's 100 MB limit, with a
+  `.gitattributes` inside the reel folder so his root file is untouched).
+- **posted.md** only after a real Buffer queue (not in dry-run), wording «Buffer navbatida», his column format read
+  from the header line; a concurrent edit by him is handled by re-reading his file and appending again.
+- **Brand rules** (brand/*.md without templates, guidance-book.md, brand/workflow skills) go into the system prompt of
+  every research/script/caption call (Claude runs in safe mode, so the text is passed, not loaded as skills). The
+  first "maksimum N s" found sets the length window to N−15…N (his: 30–45 s) for scripts, voice and video checks.
