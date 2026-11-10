@@ -4,6 +4,7 @@ Read-only. Sources:
 - personal skills: ~/.claude/skills/**/SKILL.md (synced folders included; the same skill synced several times is
   shown once);
 - project skills: <repo>/.claude/skills/**/SKILL.md;
+- content repo skills (Task 09): the user's connected content repo's .claude/skills/**/SKILL.md («Kontent reposi»);
 - plugin skills: every plugin in ~/.claude/plugins/installed_plugins.json -> <installPath>/skills/**/SKILL.md, plus
   <installPath>/commands/*.md shown as commands ("buyruq").
 Only the frontmatter `name` and `description` are used. Folder names (UUIDs), paths and file contents never leave this
@@ -141,7 +142,7 @@ def plugin_label(plugin_id: str) -> str:
     return "Plagin: " + pretty_name(plugin_id.split("@", 1)[0])
 
 
-def scan(claude_dir: Path, project_dir: Path, used: set[str] | None = None) -> dict:
+def scan(claude_dir: Path, project_dir: Path, used: set[str] | None = None, content_dir: Path | None = None) -> dict:
     used = used or set()
     skills: list[Skill] = []
     seen: set[tuple[str, str, str]] = set()
@@ -166,6 +167,11 @@ def scan(claude_dir: Path, project_dir: Path, used: set[str] | None = None) -> d
             meta = _read(path)
             if meta:
                 add(_skill(meta, "project", "Loyiha"))
+    if content_dir is not None and content_dir.is_dir():
+        for path in sorted(content_dir.rglob("SKILL.md")):
+            meta = _read(path)
+            if meta:
+                add(_skill(meta, "content", "Kontent reposi"))
     try:
         installed = json.loads((claude_dir / "plugins" / "installed_plugins.json").read_text(encoding="utf-8"))
         plugins = installed.get("plugins", installed) if isinstance(installed, dict) else {}
@@ -189,7 +195,7 @@ def scan(claude_dir: Path, project_dir: Path, used: set[str] | None = None) -> d
                 meta = _read_command(path)
                 if meta:
                     add(_skill(meta, "plugin", label, prefix, kind="command"))
-    order = {"personal": 0, "project": 1, "plugin": 2}
+    order = {"personal": 0, "project": 1, "content": 2, "plugin": 3}
     skills.sort(key=lambda s: (order[s.group], s.source, s.kind != "skill", s.name.lower()))
     groups: dict[str, dict] = {}
     for s in skills:
@@ -225,14 +231,24 @@ def pipeline_skills() -> tuple[set[str], str]:
     return set(), "ko'nikmalar aniqlanmadi."
 
 
-def cached_scan(claude_dir: Path, project_dir: Path) -> dict:
-    key = f"{claude_dir}|{project_dir}"
+def cached_scan(claude_dir: Path, project_dir: Path, content_dir: Path | None = None,
+                brand_files: list[str] | None = None) -> dict:
+    key = f"{claude_dir}|{project_dir}|{content_dir}"
     now = time.monotonic()
     hit = _cache.get(key)
     if hit and now - hit[0] < CACHE_SECONDS:
         return hit[1]
     used, note = pipeline_skills()
-    data = scan(claude_dir, project_dir, used)
+    data = scan(claude_dir, project_dir, used, content_dir)
     data["used_note"] = note
+    if brand_files:
+        # Task 09: the content repo's brand/workflow skills are not loaded as skills (safe mode), but their TEXT is
+        # given to Claude with every research, script and caption request — so they are marked as used.
+        for s in data["skills"]:
+            if s["group"] == "content" and any(f.startswith(".claude/skills/") and f"/{s['slug']}/" in f"/{f}" for f in brand_files):
+                s["used"] = True
+        data["used_count"] = sum(s["used"] for s in data["skills"])
+        data["used_note"] = note + (" Kontent reposidagi brend ko'nikmalarining matni esa har tadqiqot, ssenariy va "
+                                    "caption so'roviga qo'shiladi.")
     _cache[key] = (now, data)
     return data

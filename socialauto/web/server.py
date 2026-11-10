@@ -443,7 +443,9 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
     def skills(request: Request) -> dict:
         authed(request)
         from .skills import cached_scan
-        return cached_scan(claude_dir or settings.claude.config_dir, repo_dir or settings.root)
+        brand = content.brand() if content.is_existing() else None
+        return cached_scan(claude_dir or settings.claude.config_dir, repo_dir or settings.root, content.skills_dir(),
+                           (brand or {}).get("files"))
 
     @app.get("/api/repo")
     def repo(request: Request) -> dict:
@@ -517,6 +519,59 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
         guard(request)
         info = gh_call(github.use_token, str(body.get("token", "")))
         return {"ok": True, "repo_missing": bool(info.get("repo_missing")), "account": github.public()}
+
+    @app.get("/api/accounts/github/repos")
+    def gh_repos(request: Request) -> dict:
+        """Task 09: «Mavjud repomni ulash» — the user's repos (names, private/public, last update, push right)."""
+        guard(request)
+        from .repo import when as tk_when
+        out = []
+        for r in gh_call(github.repos):
+            if r["archived"]:
+                continue
+            refused = False
+            try:
+                content.guard(f"https://github.com/{r['full_name']}.git")
+            except Exception:                                   # noqa: BLE001 - the code repo is never offered
+                refused = True
+            try:
+                pushed = tk_when(r["pushed_at"].replace("Z", "+00:00")) if r["pushed_at"] else ""
+            except ValueError:
+                pushed = ""
+            out.append({"full_name": r["full_name"], "owner": r["owner"], "name": r["name"], "private": r["private"],
+                        "updated": pushed, "url": r["url"], "description": r["description"],
+                        "can_push": r["can_push"] and not refused,
+                        "reason": "code_repo" if refused else ("" if r["can_push"] else "no_push")})
+        return {"repos": out, "current": content.choice()["existing"]}
+
+    @app.post("/api/accounts/github/choice")
+    def gh_choice(request: Request, body: dict = Body(...)) -> dict:
+        """Task 09: «Yangi repo yaratish» or «Mavjud repomni ulash» (saved for this computer only)."""
+        guard(request)
+        from ..content_repo import ContentPushRefused, parse_repo_ref
+        mode = str(body.get("mode", ""))
+        if mode == "existing":
+            ref = parse_repo_ref(str(body.get("repo", ""))[:300])
+            if not ref:
+                raise HTTPException(status_code=400, detail="bad_link")
+            try:
+                content.guard(f"https://github.com/{ref}.git")
+            except ContentPushRefused:
+                raise HTTPException(status_code=400, detail="code_repo") from None
+            view = gh_call(github.check_repo, ref)
+            content.choose("existing", view["full_name"] or ref)
+        elif mode == "new":
+            content.choose("new")
+            gh_call(github.ensure_content_repo)
+        else:
+            raise HTTPException(status_code=400, detail="missing")
+        content.prepare_async()                        # clone his repo (or init the new one) in the background
+        return {"ok": True, "account": github.public(), "content": content.status()}
+
+    @app.get("/api/accounts/github/content")
+    def gh_content(request: Request) -> dict:
+        guard(request)
+        return content.status()
 
     @app.post("/api/accounts/github/disconnect")
     def gh_disconnect(request: Request) -> dict:

@@ -989,7 +989,7 @@ async function renderApproved() {
 }
 
 // ---------------------------------------------------------------- skills
-const GROUP_TITLES = { personal: "Shaxsiy ko'nikmalar", project: "Shu loyihaning ko'nikmalari", plugin: "Plagin ko'nikmalari" };
+const GROUP_TITLES = { personal: "Shaxsiy ko'nikmalar", project: "Shu loyihaning ko'nikmalari", content: "Kontent reposi ko'nikmalari", plugin: "Plagin ko'nikmalari" };
 async function renderSkills() {
   const data = await api("/api/skills");
   let q = "";
@@ -1044,12 +1044,24 @@ function accountCard(a, content) {
         h("p", { class: "hint", style: "margin:4px 0 0", text: local ? `Reellar shu manzilga yuklanadi: ${content.remote}` : "Reellar hozircha shu kompyuterda saqlanadi. Sozlamalar → GitHub'da o'z akkauntingizni ulang — ular sizning yopiq repoingizga yuklanadi." }))),
       local && content.remote_url ? h("div", { class: "controls" }, extLink(content.remote_url, "Repoini ochish", "btn")) : h("div", { class: "controls" }, h("a", { class: "btn primary", href: "#/settings/github" }, icon("github"), "GitHub'ni ulash")));
   }
+  const mine = a.mode === "existing";
+  const c = content || {};
+  const repoLink = a.repo_url ? h("a", { class: "link", href: a.repo_url, target: "_blank", rel: "noopener noreferrer", text: a.repo_name }) : h("b", { text: a.repo_name });
+  const last = c.last ? (c.last.url ? h("a", { class: "link", href: c.last.url, target: "_blank", rel: "noopener noreferrer", text: c.last.title }) : h("b", { text: c.last.title })) : h("b", { text: "hali yo'q" });
+  const prep = c.preparing === "cloning" ? h("p", { class: "hint waiting" }, h("span", { class: "pulse" }), "Repo shu kompyuterga yuklab olinmoqda (videolarsiz, faqat tarix va matnlar)…")
+    : c.preparing === "error" ? statusRow(false, "Repoini yuklab bo'lmadi", "Internetni tekshiring, keyin Sozlamalar → GitHub'da «Tekshirish»ni bosing.") : null;
   return h("div", { class: "card" }, h("div", { class: "acct" }, avatarNode(a.avatar_url, a.login, "avatar lg"),
       h("div", { class: "acct-text" }, h("h2", { text: a.name || `@${a.login}` }), h("a", { class: "link", href: a.profile_url, target: "_blank", rel: "noopener noreferrer", text: `@${a.login}` }))),
-    h("div", { class: "kv" }, h("div", {}, h("span", { text: "Kontent repo" }), a.repo_url ? h("a", { class: "link", href: a.repo_url, target: "_blank", rel: "noopener noreferrer", text: a.repo_name }) : h("b", { text: a.repo_name })),
-      h("div", {}, h("span", { text: "Ko'rinishi" }), h("b", { text: a.repo_exists === false ? "hali yaratilmagan" : "yopiq (faqat siz)" })),
-      content ? h("div", {}, h("span", { text: "Reellar" }), h("b", { text: `${content.count} ta` })) : null,
-      content ? h("div", {}, h("span", { text: "Yuklanmagan" }), h("b", { text: content.unpushed ? `${content.unpushed} ta o'zgarish` : "yo'q" })) : null));
+    a.choose ? statusRow(false, "Kontent repo hali tanlanmagan", h("span", {}, "Sozlamalar → GitHub'da «Yangi repo yaratish» yoki «Mavjud repomni ulash»ni tanlang. ", h("a", { class: "link", href: "#/settings/github", text: "Tanlash" }))) : null,
+    prep,
+    h("div", { class: "kv" }, h("div", {}, h("span", { text: "Kontent repo" }), repoLink),
+      h("div", {}, h("span", { text: "Turi" }), h("b", { text: mine ? "sizning mavjud repongiz" : a.repo_exists === false ? "hali yaratilmagan" : "yopiq (faqat siz)" })),
+      c.branch ? h("div", {}, h("span", { text: "Shox" }), h("b", { text: c.branch })) : null,
+      h("div", {}, h("span", { text: "Oxirgi sinxronlash" }), h("b", { text: c.last_sync || "hali yo'q" })),
+      h("div", {}, h("span", { text: "Reellar" }), h("b", { text: `${c.count || 0} ta reel` })),
+      h("div", { class: "kv-wide" }, h("span", { text: "Oxirgi yuklangan reel" }), last, c.last && c.last.when ? h("small", { class: "kv-sub", text: c.last.when }) : null),
+      c.pending ? h("div", {}, h("span", { text: "Kutilayotgan" }), h("b", { text: `${c.pending} ta reel (to'qnashuv)` })) : null,
+      h("div", {}, h("span", { text: "Yuklanmagan" }), h("b", { text: c.unpushed ? `${c.unpushed} ta o'zgarish` : "yo'q" }))));
 }
 async function renderRepo() {
   const r = await api("/api/repo");
@@ -1074,6 +1086,80 @@ function fmtDay(iso) {
   return `${d}-${MON[m - 1]}, ${y}`;
 }
 
+// ---------------------------------------------------------------- Task 09: «Yangi repo» or «Mavjud repomni ulash»
+function repoChooser(a, res, redraw) {
+  let picked = a.choose ? "" : a.mode;
+  const panel = h("div", { class: "rc-panel" });
+  const cards = [
+    { key: "new", icon: "plus", title: "Yangi repo yaratish", text: `Akkauntingizda yopiq «${a.mode === "existing" ? "social-automation-content" : a.repo_name}» reposi ochiladi.` },
+    { key: "existing", icon: "github", title: "Mavjud repomni ulash", text: "Reellaringizni allaqachon saqlayotgan repongiz bo'lsa — yangi reellar o'sha repoga, sizning tartibingizda qo'shiladi." },
+  ];
+  const group = h("div", { class: "rc-cards", role: "radiogroup", "aria-label": "Kontent repo" });
+  const choose = async (body, btn) => {
+    if (btn) btn.disabled = true;
+    try { await api("/api/accounts/github/choice", { method: "POST", body: JSON.stringify(body) }); redraw(); }
+    catch (e) { showResult(res, false, reasonText(e.message)); if (btn) btn.disabled = false; }
+  };
+  const paint = () => {
+    group.querySelectorAll(".rc-card").forEach((el) => { const on = el.dataset.key === picked; el.setAttribute("aria-checked", String(on)); el.tabIndex = on || (!picked && el.dataset.key === "new") ? 0 : -1; });
+    panel.replaceChildren();
+    if (picked === "new") {
+      if (a.mode === "new") { panel.append(h("p", { class: "sf-help", text: "Hozir shu tanlangan. Reellar yopiq yangi repoga boradi." })); return; }
+      const b = h("button", { class: "btn primary", type: "button" }, icon("plus"), "Yangi repo yaratish");
+      b.addEventListener("click", () => choose({ mode: "new" }, b));
+      panel.append(h("p", { class: "sf-help", text: a.mode === "existing" ? "Mavjud repongiz va undagi fayllar o'zgarmaydi; shu kompyuterdagi nusxasi ham o'chirilmaydi (yoniga saqlanadi)." : "Repo yopiq bo'ladi — faqat siz ko'rasiz." }), h("div", { class: "controls" }, b));
+    } else if (picked === "existing") panel.append(existingPicker(a, res, choose));
+  };
+  for (const c of cards) {
+    const el = h("button", { class: "rc-card", type: "button", role: "radio", "data-key": c.key },
+      h("span", { class: "rc-icon" }, icon(c.icon)), h("span", { class: "rc-text" }, h("b", { text: c.title }), h("span", { text: c.text })), h("span", { class: "rc-dot", "aria-hidden": "true" }));
+    el.addEventListener("click", () => { picked = c.key; paint(); });
+    group.append(el);
+  }
+  group.addEventListener("keydown", (e) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+    e.preventDefault(); picked = picked === "new" ? "existing" : "new"; paint(); group.querySelector(`[data-key="${picked}"]`).focus();
+  });
+  paint();
+  return h("div", { class: "rc" }, h("p", { class: "rc-q", text: a.choose ? "Reellar qaysi repoga borsin?" : "Kontent repo" }), group, panel);
+}
+function existingPicker(a, res, choose) {
+  const wrap = h("div", { class: "rc-existing" });
+  const search = h("input", { class: "search", type: "search", placeholder: "Repo nomi bo'yicha qidirish", "aria-label": "Repo qidirish" });
+  const list = h("ul", { class: "repo-list", "aria-label": "Repolaringiz" }, h("li", { class: "repo-empty" }, h("span", { class: "pulse" }), "Repolaringiz yuklanmoqda…"));
+  const link = h("input", { type: "url", autocomplete: "off", spellcheck: "false", placeholder: "https://github.com/login/repo-nomi", "aria-label": "Repo havolasi" });
+  const linkBtn = h("button", { class: "btn primary", type: "button" }, "Ulash");
+  const REPO_REF = /^(?:(?:https?:\/\/)?(?:www\.)?github\.com[:/]+|git@github\.com:)?[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+?(?:\.git)?(?:[/?#].*)?$/i;
+  linkBtn.addEventListener("click", () => {
+    const v = link.value.trim();
+    if (!v || !REPO_REF.test(v) || (/^[a-z]+:\/\//i.test(v) && !/github\.com/i.test(v))) { showResult(res, false, reasonText("bad_link")); return; }
+    choose({ mode: "existing", repo: v }, linkBtn);
+  });
+  link.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); linkBtn.click(); } });
+  let repos = [];
+  const LIMIT = 8;
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    const hits = repos.filter((r) => !q || r.full_name.toLowerCase().includes(q) || (r.description || "").toLowerCase().includes(q));
+    if (!hits.length) { list.replaceChildren(h("li", { class: "repo-empty", text: repos.length ? "Bunday nomli repo topilmadi. Havolasini pastga qo'yib ko'ring." : "Akkauntingizda repo topilmadi." })); return; }
+    list.replaceChildren(...hits.slice(0, LIMIT).map((r) => {
+      const isCur = a.mode === "existing" && a.repo_name === r.full_name;
+      const btn = h("button", { class: `repo-item${isCur ? " current" : ""}`, type: "button", disabled: !(r.can_push && !isCur) },
+        h("span", { class: "ri-main" }, h("span", { class: "ri-name" }, h("span", { class: "ri-owner", text: `${r.owner}/` }), h("b", { text: r.name })),
+          h("span", { class: `ri-badge ${r.private ? "priv" : "pub"}`, text: r.private ? "Yopiq" : "Ochiq" })),
+        h("span", { class: "ri-meta", text: isCur ? "✓ Hozir ulangan" : r.can_push ? (r.updated ? `Oxirgi o'zgarish: ${r.updated}` : "") : (r.reason === "code_repo" ? "Dastur kodi — tanlab bo'lmaydi" : "Yozish huquqi yo'q — faqat o'qiy olasiz") }));
+      if (r.can_push && !isCur) btn.addEventListener("click", () => choose({ mode: "existing", repo: r.full_name }, btn));
+      return h("li", {}, btn);
+    }), ...(hits.length > LIMIT ? [h("li", { class: "repo-empty", text: `Yana ${hits.length - LIMIT} ta — nomini yozib qidiring.` })] : []));
+  };
+  search.addEventListener("input", draw);
+  api("/api/accounts/github/repos").then((d) => { repos = d.repos; draw(); })
+    .catch((e) => list.replaceChildren(h("li", { class: "repo-empty", text: reasonText(e.message) })));
+  wrap.append(h("p", { class: "sf-help", text: "Faqat siz yoza oladigan repolarni tanlash mumkin. Reel yangi papka bo'lib qo'shiladi: eski fayllaringiz, brend qoidalaringiz va skilllaringizga tegilmaydi." }),
+    search, list, h("label", { class: "sf-help rc-or", text: "Yoki repo havolasini qo'ying:" }), h("div", { class: "rc-link" }, h("div", { class: "field" }, link), linkBtn));
+  return wrap;
+}
+
 // ---------------------------------------------------------------- setup ("Sozlash") and settings ("Sozlamalar")
 const REASONS = {
   too_short: "Parol kamida 8 belgidan iborat bo'lsin.", bad_token: "Token ko'rinishi noto'g'ri. To'liq nusxalab qayta qo'ying.",
@@ -1088,6 +1174,11 @@ const REASONS = {
   not_installed: "Bu kompyuterda Claude Code o'rnatilmagan.", timeout: "Kutish vaqti tugadi — qaytadan boshlang.", not_finished: "Kirish tugallanmadi — qaytadan urinib ko'ring.",
   no_ig_account: "Facebook sahifalaringizdan hech biriga Instagram Business/Creator akkaunt bog'lanmagan.", expired: "Havola eskirdi — qaytadan bosing.",
   scopes: "Faqat statistika (o'qish) ruxsati kerak — qaytadan ulang.", cancel: "Ulanish bekor qilindi.",
+  bad_link: "Bu GitHub repo havolasiga o'xshamaydi. Masalan: github.com/login/repo-nomi.",
+  code_repo: "Bu dastur kodining reposi — reellar unga hech qachon yuklanmaydi. O'zingizning kontent repongizni tanlang.",
+  repo_not_found: "Bunday repo topilmadi yoki ulangan GitHub akkauntingiz uni ko'ra olmaydi.",
+  no_push: "Bu repoga yozish huquqingiz yo'q (faqat o'qiy olasiz). Repo egasidan sizni «Write» huquqi bilan qo'shishini so'rang yoki o'z repongizni tanlang.",
+  repo_archived: "Bu repo arxivlangan — unga yozib bo'lmaydi.", not_connected: "Avval GitHub akkauntingizni ulang.",
 };
 function reasonText(r) { return REASONS[r] || "Saqlab bo'lmadi. Qayta urinib ko'ring."; }
 const SETUP_STEPS = [
@@ -1275,12 +1366,17 @@ async function renderSetup(firstRun, startKey) {
         if (off.dataset.sure !== "1") { off.dataset.sure = "1"; off.textContent = "Rostdan uzilsinmi? Yana bosing"; return; }
         await api("/api/accounts/github/disconnect", { method: "POST", body: "{}" }); draw();
       });
+      const current = a.choose ? null : a.mode === "existing"
+        ? statusRow(acc.content.preparing !== "error", `Reellar «${a.repo_name}» reposiga boradi`,
+          h("span", {}, acc.content.preparing === "cloning" ? "Repo shu kompyuterga yuklab olinmoqda (videolarsiz)… " : acc.content.preparing === "error" ? "Repoini yuklab bo'lmadi — internetni tekshirib, «Tekshirish»ni bosing. " : `Sizning tartibingizda qo'shiladi: reels/<sana>-<mavzu>/, ${acc.content.count} ta reel bor. `, extLink(a.repo_url, "Repoini ochish")))
+        : statusRow(a.repo_exists !== false, a.repo_exists === false ? `«${a.repo_name}» repo hali yo'q` : `Reellar «${a.repo_name}» yopiq reposiga boradi`,
+          a.repo_exists === false ? h("span", {}, "Token bilan ulangan bo'lsangiz, repoini o'zingiz yarating: ", extLink(`https://github.com/new?name=${a.repo_name}&visibility=private`, "yopiq repo yaratish"), ", keyin «Tekshirish»ni bosing.")
+            : h("span", {}, extLink(a.repo_url, "Repoini ochish")));
       box.append(h("div", { class: "acct" }, avatarNode(a.avatar_url, a.login, "avatar lg"),
           h("div", { class: "acct-text" }, h("b", { text: a.name || `@${a.login}` }), h("a", { class: "link", href: a.profile_url, target: "_blank", rel: "noopener noreferrer", text: `@${a.login}` }))),
-        statusRow(a.repo_exists !== false, a.repo_exists === false ? `«${a.repo_name}» repo hali yo'q` : `Reellar «${a.repo_name}» yopiq reposiga boradi`,
-          a.repo_exists === false ? h("span", {}, "Token bilan ulangan bo'lsangiz, repoini o'zingiz yarating: ", extLink(`https://github.com/new?name=${a.repo_name}&visibility=private`, "yopiq repo yaratish"), ", keyin «Tekshirish»ni bosing.")
-            : h("span", {}, extLink(a.repo_url, "Repoini ochish"))),
+        ...(current ? [current] : []), repoChooser(a, res, draw),
         h("div", { class: "controls" }, (() => { const b = h("button", { class: "btn", type: "button" }, icon("refresh"), "Tekshirish"); b.addEventListener("click", draw); return b; })(), off));
+      if (acc.content.preparing === "cloning") timers.push(setTimeout(draw, 3000));
     } else {
       if (acc.content && acc.content.remote) box.append(statusRow(true, "Kontent repo qo'lda ulangan", `Reellar shu manzilga yuklanadi: ${acc.content.remote}. Xohlasangiz, GitHub akkauntingizni ham ulashingiz mumkin.`));
       const codeArea = h("div", { class: "device" });
@@ -1324,7 +1420,7 @@ async function renderSetup(firstRun, startKey) {
         h("div", { class: "controls" }, startBtn), codeArea, toggleBlock("Yoki token bilan ulash", tokenBody),
         h("p", { class: "sf-help muted-note", text: "GitHub'siz ham ishlaydi: reellar shu kompyuterda saqlanadi va sayt buni ko'rsatadi." }));
     }
-    const f = form(n(4) + "Sizning GitHub'ingiz", "Har bir tasdiqlangan reel (video, muqovangiz, ssenariy, tadqiqot, manbalar) sizning O'Z GitHub akkauntingizdagi yopiq «social-automation-content» reposiga yuklanadi. Dastur kodi olingan repoga hech narsa yozilmaydi.",
+    const f = form(n(4) + "Sizning GitHub'ingiz", "Har bir tasdiqlangan reel (video, muqovangiz, ssenariy, manbalar) sizning O'Z GitHub akkauntingizga yuklanadi: yangi yopiq «social-automation-content» reposiga yoki o'zingizning mavjud repongizga. Dastur kodi olingan repoga hech narsa yozilmaydi.",
       box, res, nv.err, nv.row);
     f.addEventListener("submit", nv.run);
     return f;
