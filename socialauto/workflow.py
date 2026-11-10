@@ -72,6 +72,9 @@ class Workflow:
             from .content_repo import ContentRepo
             content = ContentRepo(settings)
         self.content = content                    # the user's OWN content repo; the code repo is never written
+        script_mod.set_window_provider(self._brand_window)          # Task 09: his length rule, if his repo has one
+        if reel_writer is not None and getattr(reel_writer, "context", 0) is None:
+            reel_writer.context = self.content_context                # his brand rules + past reels for Claude
         self.store = store
         self.jobs = jobs
         self.outbox = outbox
@@ -193,7 +196,7 @@ class Workflow:
             limit = self.voice_limit()
             if voice["duration"] and voice["duration"] > limit * 1.15:
                 self.store.set_status(video_id, VOICE_WAITING)
-                return Result(False, f"Yozuv {voice['duration']:.0f} soniya — {script_mod.MAX_SECONDS} soniyalik "
+                return Result(False, f"Yozuv {voice['duration']:.0f} soniya — {script_mod.window()[1]} soniyalik "
                                      "chegaraga sig'maydi. Iltimos, qisqaroq qilib qayta yozib yuboring.")
             self._accept_voice(video_id, voice_id)
             return Result(True, "👍 Shu holicha davom etamiz — video tayyorlanmoqda.")
@@ -442,8 +445,9 @@ class Workflow:
         al = align([pt["text"] for pt in script["parts"]], pv.words, pv.duration)
         self.store.update_voice(p["voice_id"], coverage=al.coverage)
         cmp = voice_mod.Comparison(al.coverage, al.skipped)
-        problems = voice_mod.voice_problems(cmp, pv.duration, script_mod.MAX_SECONDS + 1, self.settings.voice.min_coverage,
-                                            min_seconds=script_mod.MIN_SECONDS - 5)
+        lo, hi = script_mod.window()
+        problems = voice_mod.voice_problems(cmp, pv.duration, hi + 1, self.settings.voice.min_coverage,
+                                            min_seconds=lo - 5)
         if problems:
             safe_record(self.lessons, "voice", problems)
             self.store.update_voice(p["voice_id"], status="mismatch", problems=pv.level_problems + problems)
@@ -519,7 +523,7 @@ class Workflow:
         self.outbox.add("video_approval", video_id=video["id"], approval=token)
 
     def voice_limit(self) -> float:
-        return script_mod.MAX_SECONDS + 1.0
+        return script_mod.window()[1] + 1.0
 
     def _voice_words(self, voice: dict):
         path, words, duration = Path(voice["clean_path"]), voice_mod.words_from_json(voice["words"]), voice["duration"]
@@ -627,6 +631,28 @@ class Workflow:
         return Result(True, f"🖼 Muqovangiz qabul qilindi (o'zgartirilmasdan): «{video['title']}». GitHub va Buffer "
                             f"navbatiga yuborilmoqda.{note}")
 
+    # ----------------------------------------------------------------------------------- the user's content repo
+    def content_context(self) -> dict:
+        """Task 09: his brand rules and past reels (read-only) for every research / script / caption request."""
+        if not self.content.is_existing():
+            return {}
+        return {"brand": self.content.brand(), "examples": self.content.examples()}
+
+    def _brand_window(self) -> tuple[int, int] | None:
+        if not self.content.is_existing():
+            return None
+        b = self.content.brand()
+        return (b["min_seconds"], b["max_seconds"]) if b and b.get("max_seconds") else None
+
+    def _part_timings(self, work: Path, version: int, script: dict) -> list[float] | None:
+        """Real seconds per part from the render's scene list (props_v<N>.json), else None (estimated later)."""
+        try:
+            props = json.loads((work / f"props_v{version}.json").read_text(encoding="utf-8"))
+            by_part = {sc["part"]: sc["end"] - sc["start"] for sc in props.get("scenes", [])}
+            return [round(by_part[p["part"]], 1) for p in script["parts"]]
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
     def job_reel_publish(self, p: dict) -> None:
         video = self.store.video(p["video_id"])
         if not video or video["status"] != PUBLISHING:
@@ -636,24 +662,54 @@ class Workflow:
         render = self.store.render(video["render_id"])
         script = self.store.script(video["id"])
         cover = Path(reel["cover_path"])
-        files = {f"{base}.mp4": Path(render["video_path"]), f"{base}_cover{cover.suffix}": cover,
-                 "script.md": work / "script.md"}
-        if reel.get("research_file") and Path(reel["research_file"]).exists():
-            files["research.md"] = Path(reel["research_file"])
-        if (work / "SOURCES.md").exists():
-            files["SOURCES.md"] = work / "SOURCES.md"
-        gres = self.content.publish(base, files, script["title"])      # the user's OWN content repo (Task 07)
-        self.reels.upsert(video["id"], git_note=gres.note, git_folder=gres.folder)
-        drafts = reel.get("drafts") or {}
-        if self.buffer is not None and not drafts:
+        named = self.content.is_existing() and self.content.layout() == "named"
+        captions = reel.get("captions") or {}
+        if not captions and (self.buffer is not None or named):
+            # Captions first: his script.md carries the caption (Task 09); Buffer gets the same texts.
             style = publish.learn_style(self.claude_for_captions(), self.buffer_stats,
                                         self.settings.data_dir / "style" / "caption_style.md")
+            from .reel.writer import brand_block
+            style += brand_block(self.content_context().get("brand"))
             captions = publish.write_captions(self.claude_for_captions(), script, style, self.cfg.language)
+            self.reels.upsert(video["id"], captions=captions)
+        script_md = work / "script.md"
+        if named:
+            script_md = work / "script_repo.md"
+            dur = render.get("duration") or 0
+            made = (f"Reel: {base[:10]}. Social Automation bilan tayyorlandi: ovoz — o'z yozuvingiz, ssenariy, video va "
+                    f"muqova Telegram'da tasdiqlangan.{f' ~{dur:.0f} s.' if dur else ''}")
+            script_md.write_text(script_mod.as_repo_markdown(script, self._part_timings(work, reel.get("version") or 0, script),
+                                                             captions.get("instagram", ""), made), encoding="utf-8")
+        extras = {}
+        if reel.get("research_file") and Path(reel["research_file"]).exists():
+            extras["research.md"] = Path(reel["research_file"])
+        if (work / "SOURCES.md").exists():
+            extras["SOURCES.md"] = work / "SOURCES.md"
+        files = self.content.reel_files(base, Path(render["video_path"]), cover, script_md, extras)
+        gres = self.content.publish(base, files, script["title"])      # the user's OWN content repo (Task 07/09)
+        self.reels.upsert(video["id"], git_note=gres.note, git_folder=gres.folder, git_url=gres.url or None)
+        drafts = reel.get("drafts") or {}
+        if self.buffer is not None and not drafts:
             drafts, states = publish.queue_posts(self.buffer, captions, Path(render["video_path"]), self.public_files)
             self.reels.upsert(video["id"], captions=captions, drafts=drafts, buffer=states)
+        if drafts and not self.settings.dry_run and not reel.get("posted_md") and self.content.is_existing():
+            self._posted_md(video["id"], script, drafts)
         self.store.set_status(video["id"], BUFFER_PENDING)
         self.reels.upsert(video["id"], step="buffer")
         self.outbox.add("buffer_ready", video_id=video["id"])
+
+    def _posted_md(self, video_id: int, script: dict, drafts: dict) -> None:
+        """His posted.md gets one line in his format — only for what really happened: queued in Buffer."""
+        names = {"instagram": "Instagram", "youtube": "YouTube", "linkedin": "LinkedIn"}
+        where = ", ".join(names.get(k, k) for k in drafts)
+        hook = next((pt["text"] for pt in script["parts"] if pt["part"] == "hook"), "")
+        values = {"date": tashkent_date(self.clock()), "title": script["title"], "hook": " ".join(hook.split()),
+                  "topic": f"{script['title']} (Buffer navbatida: {where})"}
+        try:
+            if self.content.append_posted(values):
+                self.reels.upsert(video_id, posted_md=1)
+        except Exception as exc:                              # noqa: BLE001 - the reel itself is already safe
+            log.warning("posted.md not updated: %s", exc)
 
     def fix_from_voice(self, voice_id: int, video_id: int) -> Result:
         """A voice note with fixes for the finished reel: transcribed, then handled like a typed fix note."""
@@ -871,3 +927,8 @@ class Workflow:
         self.kv.set(key, until.isoformat())
         self.outbox.add("limit", text=f"⏸ {head}. Soat {tashkent_time(until, self.clock())} da (Toshkent vaqti) "
                                       "qayta ochiladi — ish o'zi davom etadi.")
+
+
+def tashkent_date(now: datetime) -> str:
+    from zoneinfo import ZoneInfo
+    return now.astimezone(ZoneInfo("Asia/Tashkent")).strftime("%Y-%m-%d")

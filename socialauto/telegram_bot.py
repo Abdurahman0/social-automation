@@ -178,7 +178,11 @@ def reel_video_caption(title: str, version: int, duration: float, report: dict, 
 def buffer_message(title: str, reel: dict, dry_run: bool) -> str:
     drafts = reel.get("drafts") or {}
     names = {"instagram": "Instagram (Reels)", "youtube": "YouTube (Shorts)", "linkedin": "LinkedIn"}
-    lines = [f"📤 <b>«{e(title)}»</b>", f"• GitHub: {e(reel.get('git_note') or '—')}"]
+    lines = [f"📤 <b>«{e(title)}»</b>"]
+    if reel.get("git_url"):
+        lines.append(f"• 📁 {e(reel.get('git_note') or 'GitHub')}: {e(reel['git_url'])}")   # Task 09: the reel folder
+    else:
+        lines.append(f"• GitHub: {e(reel.get('git_note') or '—')}")
     if drafts:
         lines.append("• 📅 <b>Buffer navbatiga qo'shildi — Buffer uni o'z vaqtida o'zi joylaydi.</b>")
         states = reel.get("buffer") or {}
@@ -213,7 +217,8 @@ def voice_request_message(script: dict, cfg, tips_from_lessons: list[str], remin
     lines = [head, f"\n<b>{e(script['title'])}</b>"]
     if slot:
         lines.append(f"🕖 Chiqish vaqti: {e(slot)} (Toshkent)")
-    lines += [f"⏱ Mo'ljal: {rs.MIN_SECONDS}–{rs.MAX_SECONDS} soniya (~{seconds_uz(est)}).",
+    lo, hi = rs.window()
+    lines += [f"⏱ Mo'ljal: {lo}–{hi} soniya (~{seconds_uz(est)}).",
               "\n📜 <b>O'qiladigan matn:</b>", e(rs.full_text(script)),
               "\n💡 <b>Maslahatlar:</b>", *[f"• {e(t)}" for t in tips[:5]],
               "\nQabul qilinadi: ovozli xabar, audio fayl (mp3/m4a/wav/ogg), fayl sifatida audio, dumaloq video yoki "

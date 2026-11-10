@@ -15,7 +15,7 @@ from PIL import Image
 
 from ..lessons import STAGE_UZ, Lessons
 from . import layout as layout_mod
-from .script import MAX_SECONDS, MIN_SECONDS, PARTS, problems as script_problems
+from .script import MAX_SECONDS, MIN_SECONDS, PARTS, problems as script_problems, window
 
 BASE_RULES = [
     ("Ssenariy", "8 qism tartibda: hook · kirish · asosiy 1 · ochiq savol · asosiy 2 · ochiq savol · asosiy 3 · CTA."),
@@ -59,7 +59,8 @@ def write_document(path: Path, lessons: Lessons | None) -> Path:
     lines = ["# Reel xatolari ro'yxati (checklist)", "",
              "Bot har renderdan **oldin va keyin** shu ro'yxat bo'yicha tekshiradi. Yangi xato topilsa, u shu yerga",
              "qo'shiladi (darslar bazasidan) va keyingi safar takrorlanmaydi.", "", "## Doimiy qoidalar", ""]
-    lines += [f"- [{group}] {text}" for group, text in BASE_RULES]
+    lo, hi = window()
+    lines += [f"- [{group}] {text.replace(f'{MIN_SECONDS}–{MAX_SECONDS}', f'{lo}–{hi}')}" for group, text in BASE_RULES]
     if lessons is not None:
         rows = [r for r in lessons.all() if r["stage"] in ("script", "voice", "render", "quality", "owner", "idea")]
         if rows:
@@ -92,8 +93,9 @@ def before_render(script: dict, clips: list, voice_seconds: float, coverage: flo
         if p.get("info"):
             fit += layout_mod.text_fit_problems(p["info"]["label"], lay["info"], int(info_px * 0.3), 3)
     rep.add("Matnlar o'z qutisiga sig'adi", not fit, "sig'adi" if not fit else "; ".join(fit))
-    rep.add("Ovoz uzunligi", MIN_SECONDS - 5 <= voice_seconds <= MAX_SECONDS + 1,
-            f"{voice_seconds:.1f} soniya (kerak {MIN_SECONDS}–{MAX_SECONDS})")
+    lo, hi = window()
+    rep.add("Ovoz uzunligi", lo - 5 <= voice_seconds <= hi + 1,
+            f"{voice_seconds:.1f} soniya (kerak {lo}–{hi})")
     rep.add("Ovoz matnga mos", coverage >= 0.75, f"{coverage:.0%} so'z topildi")
     return rep
 
@@ -114,7 +116,8 @@ def frame_problem(path: Path) -> str | None:
 
 def after_render(video: Path, frames: list[tuple[str, float, Path]], gate_checks: list[dict], duration: float) -> Report:
     rep = Report("after")
-    rep.add("Video uzunligi", MIN_SECONDS - 5 <= duration <= MAX_SECONDS + 2, f"{duration:.1f} soniya")
+    lo, hi = window()
+    rep.add("Video uzunligi", lo - 5 <= duration <= hi + 2, f"{duration:.1f} soniya")
     for c in gate_checks:
         rep.add(c["name"], c["ok"], c["detail"])
     for part, t, path in frames:

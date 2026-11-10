@@ -46,7 +46,8 @@ def script_prompt(topic: dict, insight: str, wps: float) -> str:
             f"WHAT WORKS ON THE ACCOUNT: {insight}\n\nRules (all must hold):\n"
             "- Exactly 8 parts in this order: hook, lead, body1, loop1, body2, loop2, body3, cta. loop1/loop2 are short "
             "open loops (a question or a promise that keeps people watching).\n"
-            f"- 45-60 seconds spoken: {int(45 * wps)}-{int(60 * wps)} words in total.\n"
+            f"- {script_mod.window()[0]}-{script_mod.window()[1]} seconds spoken: {int(script_mod.window()[0] * wps)}-"
+            f"{int(script_mod.window()[1] * wps)} words in total.\n"
             "- The answer or the strongest number is said in the FIRST sentence (first 5 seconds), written in DIGITS. key_fact = that number "
             "exactly as written in the hook.\n"
             "- After every technical term add a plain explanation starting with \"ya'ni\" (the double tap). List those "
@@ -57,21 +58,48 @@ def script_prompt(topic: dict, insight: str, wps: float) -> str:
             "- title: max 45 characters, on screen for the whole video.\n- sources: the facts' sources (name + url).\n")
 
 
+def brand_block(brand: dict | None) -> str:
+    """Task 09: the user's own brand rules from his connected content repo (read-only), for every Claude call."""
+    if not brand or not brand.get("text"):
+        return ""
+    return ("\n\nTHE AUTHOR'S OWN BRAND RULES (from his content repo; follow them — his voice, his CTA, his length, "
+            "numbers only from sources; where they conflict with the format rules above, the format rules about the "
+            "JSON shape win, his rules win about tone, length and wording):\n" + brand["text"])
+
+
 class ReelWriter:
-    def __init__(self, claude, niche: str, language: str, wps: float, lessons: Lessons | None = None):
+    def __init__(self, claude, niche: str, language: str, wps: float, lessons: Lessons | None = None,
+                 context=None):
         self.claude = claude
         self.niche = niche
         self.language = language
         self.wps = wps
         self.lessons = lessons
+        self.context = context            # () -> {"brand": dict | None, "examples": str} (the user's content repo)
+
+    def _ctx(self) -> dict:
+        if self.context is None:
+            return {}
+        try:
+            return self.context() or {}
+        except Exception:                 # noqa: BLE001 - his rules are extra context; never block a reel
+            log.warning("content repo context not available", exc_info=True)
+            return {}
+
+    def _system(self) -> str:
+        return system(self.niche, self.language) + brand_block(self._ctx().get("brand"))
 
     def research(self, insight_hint: str, avoid: list[str], today: date) -> dict:
         prompt = research_mod.prompt(self.niche, LANG_NAMES.get(self.language, self.language), insight_hint, avoid, today)
-        return self.claude.generate_json("research-topics", prompt, research_mod.SCHEMA, system(self.niche, self.language),
+        examples = self._ctx().get("examples")
+        if examples:
+            prompt += ("\n\nThe author's own earlier reels and audit (examples only: do not repeat these topics; learn "
+                       "which hooks and topics worked):\n" + examples)
+        return self.claude.generate_json("research-topics", prompt, research_mod.SCHEMA, self._system(),
                                          tools=("WebSearch", "WebFetch"), timeout=900)
 
     def _checked(self, task: str, prompt: str) -> dict:
-        draft = self.claude.generate_json(task, prompt, script_mod.SCHEMA, system(self.niche, self.language))
+        draft = self.claude.generate_json(task, prompt, script_mod.SCHEMA, self._system())
         found = script_mod.problems(draft, self.wps)
         if not found:
             return draft
@@ -80,7 +108,7 @@ class ReelWriter:
                                           "and keep everything else:\n" + "\n".join(f"- {p}" for p in found) +
                                           "\n(For the first-5-seconds rule: write the key number in DIGITS inside the first sentence, e.g. \"1,7 million\", "
                                           "and copy exactly that into key_fact.)\nPrevious draft parts:\n" + "\n".join(f"{p['part']}: {p['text']}" for p in draft["parts"]),
-                                          script_mod.SCHEMA, system(self.niche, self.language))
+                                          script_mod.SCHEMA, self._system())
         again = script_mod.problems(fixed, self.wps)
         if again:
             safe_record(self.lessons, "script", again)
@@ -107,7 +135,7 @@ class ReelWriter:
                   f"still fit.\nOWNER'S TEXT:\n{pasted}\nOLD SCRIPT:\n" +
                   "\n".join(f"{p['part']}: {p['text']} [broll: {p['broll']}]" for p in current["parts"]) +
                   f"\nTITLE: {current['title']}\nSOURCES: " + ", ".join(f"{s['name']} {s['url']}" for s in current.get("sources", [])))
-        return self.claude.generate_json("restructure-reel-script", prompt, script_mod.SCHEMA, system(self.niche, self.language))
+        return self.claude.generate_json("restructure-reel-script", prompt, script_mod.SCHEMA, self._system())
 
     def fix_plan(self, current: dict, note: str) -> dict:
         prompt = (f"The owner watched the reel and sent this fix note: {note}\nThe voice is already recorded, so the "
@@ -115,7 +143,7 @@ class ReelWriter:
                   "on-screen title, or correct a part's subtitle text (spelling/terms). Only list parts that change.\n"
                   "CURRENT PARTS:\n" + "\n".join(f"{p['part']}: {p['text']} [broll: {p['broll']}] [info: {p.get('info')}]"
                                                 for p in current["parts"]) + f"\nTITLE: {current['title']}")
-        return self.claude.generate_json("reel-fix-plan", prompt, FIX_SCHEMA, system(self.niche, self.language))
+        return self.claude.generate_json("reel-fix-plan", prompt, FIX_SCHEMA, self._system())
 
     def from_voice(self, spoken: str) -> dict:
         """The owner recorded a narration on his own: plan the 8 parts around EXACTLY his words."""
@@ -123,4 +151,4 @@ class ReelWriter:
                   "loop1, body2, loop2, body3, cta) WITHOUT changing, adding or dropping words, and write title, "
                   "key_fact (as said in the first sentence), terms, broll (English words for REAL footage), info, "
                   "hashtags and sources (only if the text names them; otherwise an empty list).\nSPOKEN TEXT:\n" + spoken)
-        return self.claude.generate_json("plan-reel-from-voice", prompt, script_mod.SCHEMA, system(self.niche, self.language))
+        return self.claude.generate_json("plan-reel-from-voice", prompt, script_mod.SCHEMA, self._system())

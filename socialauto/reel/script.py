@@ -49,6 +49,33 @@ SCHEMA: dict[str, Any] = {
 }
 
 
+_window_provider = None          # Task 09: the connected content repo's own length rule (e.g. "maksimum 45 s")
+_window_cache: tuple[float, tuple[int, int]] | None = None
+
+
+def set_window_provider(fn) -> None:
+    """fn() -> (min_s, max_s) | None. Used by every length check (script, voice, video, Telegram texts)."""
+    global _window_provider, _window_cache
+    _window_provider, _window_cache = fn, None
+
+
+def window() -> tuple[int, int]:
+    """The spoken-length window in seconds: the user's own brand rule when his content repo has one, else 45–60."""
+    global _window_cache
+    import time
+    if _window_provider is None:
+        return MIN_SECONDS, MAX_SECONDS
+    if _window_cache and time.monotonic() - _window_cache[0] < 60:
+        return _window_cache[1]
+    try:
+        got = _window_provider()
+    except Exception:            # noqa: BLE001 - the default window is always safe
+        got = None
+    value = (int(got[0]), int(got[1])) if got else (MIN_SECONDS, MAX_SECONDS)
+    _window_cache = (time.monotonic(), value)
+    return value
+
+
 def words(text: str) -> list[str]:
     return re.findall(r"[\wʼ'‘’`]+", text)
 
@@ -65,9 +92,12 @@ def _norm(t: str) -> str:
     return re.sub(r"[ʼ'‘’`]", "'", t.lower())
 
 
-def problems(script: dict, wps: float = WORDS_PER_SECOND, min_s: float = MIN_SECONDS,
-             max_s: float = MAX_SECONDS) -> list[str]:
+def problems(script: dict, wps: float = WORDS_PER_SECOND, min_s: float | None = None,
+             max_s: float | None = None) -> list[str]:
     """Every rule the owner's flow sets for a script (empty list = OK)."""
+    w = window()
+    min_s = w[0] if min_s is None else min_s
+    max_s = w[1] if max_s is None else max_s
     out = []
     parts = script.get("parts") or []
     names = [p.get("part") for p in parts]
@@ -148,4 +178,21 @@ def as_markdown(script: dict) -> str:
     if script.get("sources"):
         lines.append("## Manbalar")
         lines += [f"- [{s['name']}]({s['url']})" for s in script["sources"]]
+    return "\n".join(lines) + "\n"
+
+
+def as_repo_markdown(script: dict, timings: list[float] | None, caption: str, made: str) -> str:
+    """script.md in the format of a connected content repo that keeps its own reels (Task 09, Javohir's repo):
+    the spoken text with seconds per line, the sources (links/DOI) and the caption. `made` is the plan line."""
+    lines = [f"# {script['title']}", "", made, "", "## Ovoz matni (subtitr bilan bir xil)"]
+    for i, p in enumerate(script.get("parts") or []):
+        secs = timings[i] if timings and i < len(timings) else len(words(p["text"])) / WORDS_PER_SECOND
+        lines.append(f"{i + 1}. ({secs:.1f} s) {' '.join(p['text'].split())}")
+    infos = [p["info"] for p in script.get("parts") or [] if p.get("info")]
+    if infos or script.get("sources"):
+        lines += ["", "## Raqamlar va manbalar"]
+        lines += [f"- {x['value']} — {x['label']}" for x in infos]
+        lines += [f"- {s['name']}: {s['url']}" for s in script.get("sources") or []]
+    if caption:
+        lines += ["", "## Caption (Buffer navbatiga yuborilgan)", caption.strip()]
     return "\n".join(lines) + "\n"
