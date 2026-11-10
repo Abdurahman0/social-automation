@@ -96,6 +96,8 @@ class GitHubConfig:
     content_repo: str = "social-automation-content"     # created (private) in the user's own GitHub account
     content_dir: str = "data/content-repo"              # local clone of the content repo (git-ignored)
     content_remote: str = ""                            # optional fixed remote (SSH URL or a local bare repo)
+    content_mode: str = ""                              # "" (not chosen yet) | "new" | "existing" (Task 09)
+    content_existing: str = ""                          # "owner/name" of the user's existing repo (Task 09)
     oauth_client_id: str = ""                           # public id of the GitHub OAuth app (device flow, no secret)
     update_check_hours: int = 6
 

@@ -90,5 +90,8 @@ def test_canonical_forms():
 def test_no_code_path_pushes_to_origin():
     """Nothing in the app pushes the code repo: the only `push` is ContentRepo.push (guarded)."""
     root = Path(__file__).resolve().parent.parent / "socialauto"
-    hits = [str(p.relative_to(root)) for p in root.rglob("*.py") if '"push"' in p.read_text(encoding="utf-8")]
+    import re
+    git_push = re.compile(r'(git|_netgit|run)\(.*"push"|\["git",.*"push"')       # a git command line with "push"
+    hits = sorted({str(p.relative_to(root)) for p in root.rglob("*.py")
+                   for line in p.read_text(encoding="utf-8").splitlines() if git_push.search(line)})
     assert hits == ["content_repo.py"]

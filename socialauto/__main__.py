@@ -42,6 +42,8 @@ def cmd_run(settings, config_path=None) -> int:
             log.info("Moved %d old reel folder(s) into the content repo", len(moved))
     except Exception:                         # noqa: BLE001
         log.exception("Could not move old reels into the content repo")
+    if app.workflow.content.is_existing():    # Task 09: his repo is cloned (or synced) in the background at start
+        app.workflow.content.prepare_async()
     collector = make_collector(settings, app.db, app.kv, app.clock)
     bot = TelegramBot(app, collector)
     from .netcheck import wait_until_online

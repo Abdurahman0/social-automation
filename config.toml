@@ -81,5 +81,7 @@ code_repo = "Abdurahman0/social-automation"
 content_repo = "social-automation-content"
 content_dir = "data/content-repo"
 content_remote = ""            # optional: an SSH URL of your content repo (set in config.local.toml)
+content_mode = ""              # chosen on the website: "new" (a new private repo) or "existing" (your own repo)
+content_existing = ""          # "owner/name" of your existing content repo (Task 09; saved in config.local.toml)
 oauth_client_id = "Ov23liS94MsnZzPLrzTA"   # public id of the "Social Automation" OAuth app (device flow; not a secret)  gitleaks:allow
 update_check_hours = 6

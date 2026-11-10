@@ -149,10 +149,11 @@ class GitHubAccount:
             return {"state": "denied"}
         self._pending = None
         self._store_user(body["access_token"], "device")
-        try:
-            self.ensure_content_repo()
-        except GitHubError:
-            log.warning("content repo not created yet; will retry on the next push")
+        if self._mode() == "new":                  # not chosen yet: the user picks «Yangi» or «Mavjud» first
+            try:
+                self.ensure_content_repo()
+            except GitHubError:
+                log.warning("content repo not created yet; will retry on the next push")
         return {"state": "done"}
 
     # --- personal token -----------------------------------------------------------------------------------------
@@ -161,6 +162,8 @@ class GitHubAccount:
         if not token or len(token) > 400 or any(c.isspace() for c in token):
             raise GitHubError("bad_token")
         info = self._store_user(token, "token")
+        if self._mode() != "new":
+            return info
         try:
             self.ensure_content_repo()
         except GitHubError as exc:
@@ -170,6 +173,49 @@ class GitHubAccount:
         return info
 
     # --- content repo -------------------------------------------------------------------------------------------
+    def _mode(self) -> str:
+        from .content_repo import ContentRepo
+        return ContentRepo(self.settings).choice()["mode"]
+
+    def repos(self) -> list[dict[str, Any]]:
+        """Task 09: the user's repos for «Mavjud repomni ulash» (his own, collaborator and organisation repos),
+        newest first. Only what the website shows: names, private/public, last update, push right."""
+        info = self.info()
+        if not info:
+            raise GitHubError("not_connected")
+        out: list[dict[str, Any]] = []
+        for page in range(1, 4):
+            r = self._api("GET", f"/user/repos?per_page=100&page={page}&sort=pushed"
+                                 "&affiliation=owner,collaborator,organization_member", self.token())
+            if r.status_code in (401, 403):
+                raise GitHubError("rejected")
+            if r.status_code != 200:
+                raise GitHubError("network")
+            items = r.json() or []
+            out += [_repo_view(x) for x in items]
+            if len(items) < 100:
+                break
+        return out
+
+    def check_repo(self, ref: str) -> dict[str, Any]:
+        """One repo by "owner/name": exists for this account and he can push to it. GitHubError(reason) if not."""
+        info = self.info()
+        if not info:
+            raise GitHubError("not_connected")
+        r = self._api("GET", f"/repos/{ref}", self.token())
+        if r.status_code == 404:
+            raise GitHubError("repo_not_found")
+        if r.status_code in (401, 403):
+            raise GitHubError("rejected")
+        if r.status_code != 200:
+            raise GitHubError("network")
+        view = _repo_view(r.json())
+        if view["archived"]:
+            raise GitHubError("repo_archived")
+        if not view["can_push"]:
+            raise GitHubError("no_push")
+        return view
+
     def content_repo(self) -> dict[str, Any]:
         info = self.info()
         name = self.settings.github.content_repo
@@ -199,16 +245,33 @@ class GitHubAccount:
         if not info:
             return {"connected": False, "device_flow": bool(self.settings.github.oauth_client_id),
                     "repo_name": self.settings.github.content_repo}
+        mode = self._mode()
         out = {"connected": True, "login": info["login"], "name": info.get("name") or "",
                "avatar_url": info.get("avatar_url") or "", "method": info.get("method"),
                "profile_url": f"https://github.com/{info['login']}", "repo_name": self.settings.github.content_repo,
-               "device_flow": bool(self.settings.github.oauth_client_id)}
+               "device_flow": bool(self.settings.github.oauth_client_id), "mode": mode}
+        if mode == "existing":
+            from .content_repo import ContentRepo
+            ref = ContentRepo(self.settings).choice()["existing"]
+            out.update(repo_name=ref, repo_url=f"https://github.com/{ref}", repo_exists=True, existing=True, choose=False)
+            return out
+        out["choose"] = mode == ""                 # not chosen yet: the website offers «Yangi» / «Mavjud»
         try:
             repo = self.content_repo()
             out.update(repo_exists=repo["exists"], repo_url=repo["url"])
         except GitHubError:
             out.update(repo_exists=None, repo_url=f"https://github.com/{info['login']}/{out['repo_name']}")
         return out
+
+
+def _repo_view(x: dict[str, Any]) -> dict[str, Any]:
+    perms = x.get("permissions") or {}
+    return {"full_name": x.get("full_name", ""), "name": x.get("name", ""),
+            "owner": (x.get("owner") or {}).get("login", ""), "private": bool(x.get("private")),
+            "pushed_at": x.get("pushed_at") or x.get("updated_at") or "", "url": x.get("html_url", ""),
+            "description": (x.get("description") or "")[:140], "archived": bool(x.get("archived")),
+            "can_push": bool(perms.get("push") or perms.get("admin") or perms.get("maintain")),
+            "default_branch": x.get("default_branch") or "main"}
 
 
 __all__ = ["GitHubAccount", "GitHubError"]

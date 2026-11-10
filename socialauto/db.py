@@ -252,6 +252,18 @@ def _add_buffer_state(conn) -> None:
 MIGRATIONS.append([_add_buffer_state])
 
 
+def _add_git_url(conn) -> None:
+    """Task 09: the reel folder's link on GitHub (shown in Telegram and on the website) and posted.md state."""
+    have = {r[1] for r in conn.execute("PRAGMA table_info(reels)")}
+    if "git_url" not in have:
+        conn.execute("ALTER TABLE reels ADD COLUMN git_url TEXT")
+    if "posted_md" not in have:
+        conn.execute("ALTER TABLE reels ADD COLUMN posted_md INTEGER NOT NULL DEFAULT 0")
+
+
+MIGRATIONS.append([_add_git_url])
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
 
