@@ -42,15 +42,18 @@ log = logging.getLogger(__name__)
 MAX_CHUNK = 3900
 CAPTION_MAX = 1024
 SENT_KINDS = {"script_approval", "voice_request", "voice_reminder", "voice_check", "voice_unusable", "video_approval",
-              "owner_action", "limit", "topic_choice", "cover_request", "buffer_ready", "story_ready"}
+              "owner_action", "limit", "topic_choice", "cover_request", "buffer_ready", "story_ready", "error"}
 AWAIT_EDIT = "await_edit:{}"
 AWAIT_REJECT = "await_reject:{}"
+AWAIT_IDEA = "await_idea:{}"
 BUTTON_RE = re.compile(r"^(s|v|c):([a-z]):([0-9a-f]{10})$")
 VOICE_TO_RE = re.compile(r"^vo:(\d+):(\d+)$")
 VOICE_NEW_RE = re.compile(r"^vn:(\d+)$")
 VOICE_FIX_RE = re.compile(r"^vf:(\d+):(\d+)$")
 TOPIC_RE = re.compile(r"^t:(\d+|m):([0-9a-f]{10})$")
 STORY_RE = re.compile(r"^st:(\d+)$")
+ERROR_RE = re.compile(r"^er:([ro]):(\d+)$")                  # «Qayta urinish» / «Boshqa mavzu» under an error
+NEW_AUTO = "nw:auto"
 PLATFORM_UZ = {"youtube": "YouTube", "instagram": "Instagram"}
 
 HELP = """🎬 Social Automation — suv va oqova suv haqida reels
@@ -65,10 +68,14 @@ Siz qiladigan ishlar (har biri bitta xabar va tugmalar bilan keladi):
 6) 📱 Reel efirga chiqqach — story qoralamasi tayyor bo'ladi, uni o'zingiz joylaysiz.
 
 Buyruqlar:
-/new [mavzu] — yangi tadqiqot (mavzu ixtiyoriy)
+/new [g'oya] — yangi tadqiqot. Masalan: «/new Toshkentda ichimlik suvi» — bot shu g'oya bo'yicha
+   internetdan 3–5 ta mavzu topadi. Faqat /new yozsangiz, bot g'oyani so'raydi (/skip — mavzuni o'zi tanlaydi).
 /queue — navbat · /status — holat · /stats — statistika
 /lessons — o'rganilgan xatolar · /usage — Claude sarfi
-/pause, /resume · /cancel — matn kiritishni bekor qilish"""
+/pause, /resume · /cancel — matn kiritishni bekor qilish
+
+Xato bo'lsa, bot darhol oddiy so'z bilan yozadi va o'zi qayta urinadi; to'xtab qolsa — «🔄 Qayta urinish» tugmasi.
+Oxirgi xato va qayta urinishni kutayotgan ishlar — /status da."""
 
 RECORD_TIPS = ["Jim xonada yozing (eshik-deraza yopiq, konditsioner/TV o'chiq).",
                "Telefonni og'izdan 15–20 sm uzoqlikda tuting.",
@@ -113,8 +120,11 @@ def source_name(text: str) -> str:
 
 # --- message texts (pure functions, tested) -------------------------------------------------------------------------
 
-def topic_message(topics: list[dict], insight: str, dry_run: bool) -> str:
-    lines = ["🔎 <b>Yangi mavzular tayyor</b>" + (" · 🧪 sinov rejimi" if dry_run else ""),
+def topic_message(topics: list[dict], insight: str, dry_run: bool, idea: str | None = None,
+                  idea_note: str | None = None) -> str:
+    head = f"🔎 <b>«{e(idea)}» bo'yicha mavzular tayyor</b>" if idea else "🔎 <b>Yangi mavzular tayyor</b>"
+    lines = [head + (" · 🧪 sinov rejimi" if dry_run else ""),
+             f"💡 {e(idea_note)}" if idea and idea_note else "",
              f"\n📊 <i>{e(insight)}</i>" if insight else ""]
     for i, tp in enumerate(topics, start=1):
         sources = ", ".join(dict.fromkeys(f["source"] for f in tp.get("facts", [])))
@@ -124,6 +134,19 @@ def topic_message(topics: list[dict], insight: str, dry_run: bool) -> str:
                   f"• <b>Manbalar:</b> {e(sources)}"]
     lines.append("\nQaysi mavzuda video qilamiz?")
     return "\n".join(x for x in lines if x)
+
+
+def error_keyboard(buttons: list[list[list[str]]] | None) -> InlineKeyboardMarkup | None:
+    if not buttons:
+        return None
+    return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=data) for label, data in row]
+                                 for row in buttons])
+
+
+def new_started_text(idea: str | None) -> str:
+    if idea:
+        return f"🔎 «{idea}» bo'yicha mavzular qidirilyapti… (odatda 3–10 daqiqa). Tayyor bo'lishi bilan yuboraman."
+    return "🔎 Bot o'zi yangi mavzular qidiryapti… (odatda 3–10 daqiqa). Tayyor bo'lishi bilan yuboraman."
 
 
 def topic_keyboard(topics: list[dict], token: str) -> InlineKeyboardMarkup:
@@ -288,6 +311,7 @@ def status_text(app: App, scheduler_paused: bool) -> str:
              f"🕖 Keyingi bo'sh vaqt: {nxt} (Toshkent)",
              "\n<b>Videolar:</b>"]
     lines += [f"• {STATUS_UZ.get(k, k)}: {n}" for k, n in sorted(counts.items(), key=lambda kv: -kv[1])] or ["• hali yo'q"]
+    lines += ["\n<b>Xatolar:</b>"] + [e(x) for x in app.workflow.reporter.status_lines(app.jobs)]
     return "\n".join(lines)
 
 
@@ -305,12 +329,12 @@ def authorized(handler):
 
 
 class TelegramBot:
-    def __init__(self, app: App, analytics=None):
+    def __init__(self, app: App, analytics=None, updater=None):
         self.app = app
         self.analytics = analytics
         self.application: Application | None = None
         self.bot = None                           # set in build(); tests inject a fake
-        self.scheduler = Scheduler(app, self.deliver_outbox, analytics)
+        self.scheduler = Scheduler(app, self.deliver_outbox, analytics, updater)
         self._stop = asyncio.Event()
         self._tasks: list[asyncio.Task] = []
         self._deliver_lock = asyncio.Lock()
@@ -323,7 +347,7 @@ class TelegramBot:
         for name, fn in [("start", self.cmd_help), ("help", self.cmd_help), ("new", self.cmd_new),
                          ("status", self.cmd_status), ("queue", self.cmd_queue), ("pause", self.cmd_pause),
                          ("resume", self.cmd_resume), ("stats", self.cmd_stats), ("lessons", self.cmd_lessons),
-                         ("usage", self.cmd_usage), ("cancel", self.cmd_cancel)]:
+                         ("usage", self.cmd_usage), ("cancel", self.cmd_cancel), ("skip", self.cmd_skip)]:
             application.add_handler(CommandHandler(name, fn))
         application.add_handler(CallbackQueryHandler(self.on_button))
         media = filters.VOICE | filters.AUDIO | filters.Document.ALL | filters.VIDEO_NOTE | filters.VIDEO | filters.PHOTO
@@ -344,7 +368,7 @@ class TelegramBot:
 
     async def _post_init(self, application: Application) -> None:
         await application.bot.set_my_commands([
-            BotCommand("new", "Yangi video g'oyasi"), BotCommand("queue", "Navbat"), BotCommand("status", "Holat"),
+            BotCommand("new", "Yangi video: /new <g'oya>"), BotCommand("queue", "Navbat"), BotCommand("status", "Holat"),
             BotCommand("stats", "Statistika"), BotCommand("lessons", "O'rganilgan xatolar"),
             BotCommand("usage", "Claude sarfi"), BotCommand("pause", "To'xtatish"), BotCommand("resume", "Davom ettirish"),
             BotCommand("help", "Yordam")])
@@ -357,8 +381,12 @@ class TelegramBot:
             try:
                 await self.scheduler.run(self._stop)
                 return
-            except Exception:              # noqa: BLE001
+            except Exception as exc:       # noqa: BLE001
                 log.exception("Scheduler stopped; restarting in %.0fs", delay)
+                try:
+                    self.app.workflow.reporter.problem("scheduler", exc)
+                except Exception:          # noqa: BLE001
+                    log.exception("could not queue the scheduler error message")
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=delay)
             except TimeoutError:
@@ -371,10 +399,37 @@ class TelegramBot:
             await asyncio.gather(*self._tasks, return_exceptions=True)
 
     async def on_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if isinstance(context.error, NetworkError):
-            log.warning("Telegram network error: %s", context.error)
-        else:
-            log.error("Telegram handler error", exc_info=context.error)
+        """Task 10: a command or button that broke answers the owner in plain Uzbek (the details go to the log)."""
+        err = context.error
+        if isinstance(err, NetworkError):
+            log.warning("Telegram network error: %s", err)
+            return
+        log.error("Telegram handler error", exc_info=err)
+        await self.report_handler_error(update, err)
+
+    async def report_handler_error(self, update: object, err: BaseException | None) -> str | None:
+        from .errors import explain
+        reason = explain(err or "noma'lum xato")[1]
+        text = f"⚠️ Buyruqni bajarib bo'lmadi: {reason}. Birozdan keyin qayta urinib ko'ring yoki /status ni bosing."
+        try:
+            self.app.workflow.reporter._remember("Telegram buyrug'i", reason)
+        except Exception:                          # noqa: BLE001
+            log.exception("could not record the error")
+        user = getattr(update, "effective_user", None)
+        chat = getattr(update, "effective_chat", None)
+        if not user or user.id not in self.app.settings.allowed_user_ids or not chat or self.bot is None:
+            return None
+        try:
+            query = getattr(update, "callback_query", None)
+            if query is not None:
+                try:
+                    await query.answer()
+                except TelegramError:
+                    pass
+            await self.bot.send_message(chat.id, text)
+        except TelegramError as exc:
+            log.warning("Could not tell the owner about the error: %s", exc)
+        return text
 
     # --- outgoing -------------------------------------------------------------------------------------------
     async def deliver_outbox(self) -> None:
@@ -420,7 +475,8 @@ class TelegramBot:
             if not approval or approval["status"] != "pending":
                 return
             reel = self.app.workflow.reels.get(p["video_id"])
-            await self._send_long(chat_id, topic_message(reel["topics"], reel.get("insight", ""), bool(approval["dry_run"])),
+            await self._send_long(chat_id, topic_message(reel["topics"], reel.get("insight", ""), bool(approval["dry_run"]),
+                                                         reel.get("idea"), reel.get("idea_note")),
                                   topic_keyboard(reel["topics"], p["approval"]))
         elif kind == "script_approval":
             approval = store.approval(p["approval"])
@@ -488,6 +544,8 @@ class TelegramBot:
             await self.bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
         elif kind == "video_approval":
             await self._send_video_approval(chat_id, p)
+        elif kind == "error":                            # Task 10: plain-Uzbek error, maybe with «Qayta urinish»
+            await self.bot.send_message(chat_id, p.get("text", ""), reply_markup=error_keyboard(p.get("buttons")))
         else:                                            # owner_action, limit
             await self.bot.send_message(chat_id, p.get("text", ""))
 
@@ -576,6 +634,15 @@ class TelegramBot:
             choice = "more" if m.group(1) == "m" else int(m.group(1))
             res = await asyncio.to_thread(wf.topic_decision, m.group(2), choice)
             return res.ok, res.message
+        m = ERROR_RE.match(data)
+        if m:
+            res = await asyncio.to_thread(wf.retry_failed, int(m.group(2)), m.group(1) == "o")
+            return res.ok, res.message
+        if data == NEW_AUTO:
+            if not kv.get(AWAIT_IDEA.format(user_id)):
+                return False, "Bu tugma endi ishlamaydi."
+            kv.delete(AWAIT_IDEA.format(user_id))
+            return True, await self.new_reply(None)
         m = STORY_RE.match(data)
         if m:
             res = await asyncio.to_thread(wf.story_done, int(m.group(1)))
@@ -695,6 +762,9 @@ class TelegramBot:
             fn = wf.script_decision if edit["stage"] == "script" else wf.video_decision
             res = await asyncio.to_thread(fn, edit["token"], "edit", text)
             return res.message if res.ok else f"⚠️ {res.message}"
+        if kv.get(AWAIT_IDEA.format(user_id)):              # the answer to «Qaysi g'oya bo'yicha?»
+            kv.delete(AWAIT_IDEA.format(user_id))
+            return await self.new_reply(text or None)
         reject = kv.get(AWAIT_REJECT.format(user_id))
         if reject:
             kv.delete(AWAIT_REJECT.format(user_id))
@@ -710,15 +780,43 @@ class TelegramBot:
 
     @authorized
     async def cmd_new(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        topic = " ".join(context.args or []).strip() or None
-        await update.message.reply_text(await self.new_reply(topic))
+        reply, markup = await self.new_command(update.effective_user.id, " ".join(context.args or []))
+        await update.message.reply_text(reply, reply_markup=markup)
+        await self.deliver_outbox()
 
-    async def new_reply(self, topic: str | None) -> str:
-        video_id = await asyncio.to_thread(self.app.workflow.request_new, topic)
-        if video_id is None:
-            return "🔎 Tadqiqot allaqachon ketyapti — mavzular tayyor bo'lishi bilan yuboraman."
-        return "🔎 Tadqiqot boshlandi" + (f" («{topic}» yo'nalishida)" if topic else "") + \
-               ". Bir necha daqiqada mavzular tanlash uchun keladi."
+    async def new_command(self, user_id: int, args: str) -> tuple[str, InlineKeyboardMarkup | None]:
+        """/new <idea> starts research about the idea; /new alone asks for the idea (/skip: the bot picks)."""
+        idea = " ".join(args.split()) or None
+        if self.scheduler.paused():
+            return "⏸ Avtomatik ish to'xtatilgan — /resume bosing, keyin /new ni qayta yuboring.", None
+        if idea:
+            self.app.kv.delete(AWAIT_IDEA.format(user_id))
+            return await self.new_reply(idea), None
+        self.app.kv.set(AWAIT_IDEA.format(user_id), True)
+        return ("💡 Qaysi g'oya bo'yicha? Bitta xabarda yozing (masalan: «Toshkentda ichimlik suvi»).\n"
+                "Yoki /skip — bot mavzuni o'zi tanlaydi.",
+                InlineKeyboardMarkup([[InlineKeyboardButton("🎲 Bot o'zi tanlasin", callback_data=NEW_AUTO)]]))
+
+    async def new_reply(self, idea: str | None) -> str:
+        if self.scheduler.paused():
+            return "⏸ Avtomatik ish to'xtatilgan — /resume bosing, keyin /new ni qayta yuboring."
+        res = await asyncio.to_thread(self.app.workflow.start_research, idea)
+        if res.status == "busy_research":
+            about = f" («{res.idea}» bo'yicha)" if res.idea else ""
+            return f"🔎 Tadqiqot allaqachon ketyapti{about} — mavzular tayyor bo'lishi bilan yuboraman."
+        if res.status == "busy_script":
+            return (f"📝 «{res.idea or 'Tanlangan mavzu'}» uchun ssenariy yozilyapti — u tasdiqqa kelgach, /new bilan "
+                    "yangi g'oya boshlang.")
+        return new_started_text(res.idea)
+
+    @authorized
+    async def cmd_skip(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        key = AWAIT_IDEA.format(update.effective_user.id)
+        if not self.app.kv.get(key):
+            await update.message.reply_text("Hozir hech narsa kutilmayapti. /new — yangi g'oya.")
+            return
+        self.app.kv.delete(key)
+        await update.message.reply_text(await self.new_reply(None))
 
     @authorized
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -756,6 +854,6 @@ class TelegramBot:
 
     @authorized
     async def cmd_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        for key in (AWAIT_EDIT, AWAIT_REJECT):
+        for key in (AWAIT_EDIT, AWAIT_REJECT, AWAIT_IDEA):
             self.app.kv.delete(key.format(update.effective_user.id))
         await update.message.reply_text("Bekor qilindi.")

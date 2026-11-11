@@ -85,3 +85,4 @@ content_mode = ""              # chosen on the website: "new" (a new private rep
 content_existing = ""          # "owner/name" of your existing content repo (Task 09; saved in config.local.toml)
 oauth_client_id = "Ov23liS94MsnZzPLrzTA"   # public id of the "Social Automation" OAuth app (device flow; not a secret)  gitleaks:allow
 update_check_hours = 6
+auto_update = true             # the bot installs updates itself (fetch + fast-forward only); a failure comes to Telegram

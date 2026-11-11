@@ -898,7 +898,9 @@ async function renderReelBoard(data) {
     c.items.length ? c.items.map((it) => {
       const card = h("a", { class: "pcard reel-card", href: `#/reel/${it.key}` }, h("div", { class: "ttl", text: it.title }),
         h("div", { class: "meta" }, whoBadge(it.who), h("span", { class: "tag", text: it.status }), it.version ? h("span", { class: "tag", text: `v${it.version}` }) : null),
-        h("div", { class: "meta" }, it.slot ? h("span", { text: `🗓 ${it.slot}` }) : null, it.origin_voice ? h("span", { class: "tag", text: "ovozdan" }) : null));
+        h("div", { class: "meta" }, it.slot ? h("span", { text: `🗓 ${it.slot}` }) : null, it.origin_voice ? h("span", { class: "tag", text: "ovozdan" }) : null),
+        it.error ? h("div", { class: "err-line", text: `⚠️ ${it.error}` }) : null);
+      if (it.error) card.classList.add("stopped");
       return card;
     }) : h("div", { class: "col-empty", text: "Bo'sh" }))));
   shell("pipeline", "Jarayon", "Reel bosqichlari: kim nima qiladi — «Siz» yoki «Bot». Tasdiqlangan reel Buffer navbatiga tushadi.", [updatedNode(st)], h("div", {}, banners({ ...st, dry_run: data.dry_run }), board));
@@ -914,6 +916,15 @@ async function renderReel(key) {
     h("p", { class: "hint", style: "margin:4px 0 0" }, r.name ? `${r.name}` : "", r.slot ? ` · chiqish: ${r.slot}` : "")),
     h("div", { class: "chips-row" }, whoBadge(r.who), h("span", { class: "tag", text: r.status }), r.version ? h("span", { class: "tag", text: `v${r.version}` }) : null)), stepper);
   const cards = [head];
+  if (r.error) {
+    cards.push(h("div", { class: "card stop-card", role: "status" }, h("h2", { text: "⚠️ To'xtab qoldi" }),
+      h("p", { class: "err-line big", text: r.error }),
+      h("p", { class: "hint", text: "Telegram'dagi xabarda «🔄 Qayta urinish» tugmasini bosing — bot shu bosqichdan davom etadi." })));
+  }
+  if (r.idea) {
+    cards.push(h("div", { class: "card" }, h("h2", { text: "💡 Sizning g'oyangiz" }), h("p", { class: "idea-line", text: r.idea }),
+      r.idea_note ? h("p", { class: "hint", text: r.idea_note }) : null));
+  }
   if (r.research) {
     cards.push(h("div", { class: "card" }, h("h2", { text: "Tadqiqot" }), r.research.insight ? h("p", { class: "hint", text: r.research.insight }) : null,
       h("div", { class: "topics" }, r.research.topics.map((tp, i) => h("div", { class: `topic ${r.topic_index === i ? "chosen" : ""}` },

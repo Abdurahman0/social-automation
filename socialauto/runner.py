@@ -104,3 +104,35 @@ def claude_alert(app) -> bool:
     app.kv.set(CLAUDE_ALERT_KEY, True)
     app.outbox.add("owner_action", text=CLAUDE_ALERT.format(what=what))
     return True
+
+
+def startup_checks(app) -> list[str]:
+    """Task 10: the «Sozlash» checks the next steps need, at every start. Each failing one reaches the owner once (and
+    again only after it was fixed and broke again). Returns the names of the failing checks."""
+    s, rep = app.settings, app.workflow.reporter
+    checks: list[tuple[str, bool, str]] = []
+    checks.append(("ffmpeg", bool(shutil.which("ffmpeg") and shutil.which("ffprobe")),
+                   "⚠️ «Ishga tushish tekshiruvi»: ffmpeg o'rnatilmagan — ovozni tozalash va video yig'ish ishlamaydi. "
+                   "O'rnatuvchini (install.sh / install.ps1) qayta ishga tushiring."))
+    model = s.resolve(s.reel.stt_model) / "model.bin"
+    checks.append(("model", model.exists() and model.stat().st_size > 500_000_000,
+                   "⚠️ «Ishga tushish tekshiruvi»: o'zbekcha nutqni tanish modeli yuklanmagan — ovozingiz matnga "
+                   "solishtirilmaydi. Terminalda: «python -m socialauto download-model» (yoki o'rnatuvchini qayta "
+                   "ishga tushiring)."))
+    remotion = s.root / "remotion"
+    checks.append(("remotion", not (remotion / "package.json").exists() or (remotion / "node_modules").is_dir(),
+                   "⚠️ «Ishga tushish tekshiruvi»: video yig'uvchi (Remotion) paketlari o'rnatilmagan — video "
+                   "tayyorlanmaydi. O'rnatuvchini qayta ishga tushiring."))
+    checks.append(("buffer", s.dry_run or bool(s.buffer_api_key),
+                   "⚠️ «Ishga tushish tekshiruvi»: sinov rejimi o'chirilgan, lekin Buffer kaliti yo'q — tasdiqlangan "
+                   "reel Buffer navbatiga qo'shilmaydi. Saytdagi «Sozlamalar» → Buffer ga kalitni yozing."))
+    failing = []
+    for name, ok, text in checks:
+        if ok:
+            rep.resolved(f"startup:{name}")
+        else:
+            failing.append(name)
+            rep.problem(f"startup:{name}", name, "startup", text=text)
+    if failing:
+        log.warning("Startup checks failing: %s", ", ".join(failing))
+    return failing

@@ -264,6 +264,18 @@ def _add_git_url(conn) -> None:
 MIGRATIONS.append([_add_git_url])
 
 
+def _add_idea(conn) -> None:
+    """Task 10: «/new <idea>» — the owner's idea and Claude's one-line note on how the topics relate to it."""
+    have = {r[1] for r in conn.execute("PRAGMA table_info(reels)")}
+    if "idea" not in have:
+        conn.execute("ALTER TABLE reels ADD COLUMN idea TEXT")
+    if "idea_note" not in have:
+        conn.execute("ALTER TABLE reels ADD COLUMN idea_note TEXT")
+
+
+MIGRATIONS.append([_add_idea])
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
 

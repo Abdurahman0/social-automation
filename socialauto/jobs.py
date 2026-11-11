@@ -86,18 +86,31 @@ class JobQueue:
                                (iso(run_after), now_iso(), dedupe_key))
             return cur.rowcount > 0
 
-    def complete(self, job_id: int) -> None:
-        self._set(job_id, "done", None)
+    def is_current(self, job: Job) -> bool:
+        """False when the watchdog already took this run away (a stuck run that finishes late changes nothing)."""
+        return bool(self.db.query("SELECT 1 FROM jobs WHERE id=? AND status='running' AND attempts=?",
+                                  (job.id, job.attempts)))
 
-    def retry_later(self, job: Job, error: str, delay_seconds: int) -> bool:
-        """Re-queue after a failure. Returns False (and marks the job failed) once attempts are used up."""
-        if job.attempts >= job.max_attempts:
-            self._set(job.id, "failed", error)
+    def complete(self, job: Job | int) -> None:
+        if isinstance(job, Job):
+            with self.db.tx() as conn:
+                conn.execute("UPDATE jobs SET status='done', updated_at=? WHERE id=? AND status='running' AND attempts=?",
+                             (now_iso(), job.id, job.attempts))
+            return
+        self._set(job, "done", None)
+
+    def retry_later(self, job: Job, error: str, delay_seconds: int, force_fail: bool = False) -> bool:
+        """Re-queue after a failure. Returns False (and marks the job failed) once attempts are used up (or at once
+        with `force_fail`, for errors a retry cannot fix)."""
+        if force_fail or job.attempts >= job.max_attempts:
+            with self.db.tx() as conn:
+                conn.execute("UPDATE jobs SET status='failed', last_error=?, updated_at=? WHERE id=? AND attempts=?",
+                             (error[:2000], now_iso(), job.id, job.attempts))
             return False
         with self.db.tx() as conn:
             conn.execute(
-                "UPDATE jobs SET status='pending', run_after=?, last_error=?, updated_at=? WHERE id=?",
-                (iso(self.clock() + timedelta(seconds=delay_seconds)), error[:2000], self._now(), job.id),
+                "UPDATE jobs SET status='pending', run_after=?, last_error=?, updated_at=? WHERE id=? AND attempts=?",
+                (iso(self.clock() + timedelta(seconds=delay_seconds)), error[:2000], self._now(), job.id, job.attempts),
             )
         return True
 
@@ -106,9 +119,52 @@ class JobQueue:
         with self.db.tx() as conn:
             conn.execute(
                 """UPDATE jobs SET status='pending', attempts=MAX(attempts-1, 0), run_after=?,
-                   last_error=?, updated_at=? WHERE id=?""",
-                (iso(until), reason[:2000], now_iso(), job.id),
+                   last_error=?, updated_at=? WHERE id=? AND attempts=?""",
+                (iso(until), reason[:2000], now_iso(), job.id, job.attempts),
             )
+
+    def get(self, job_id: int) -> dict[str, Any] | None:
+        row = self.db.one("SELECT * FROM jobs WHERE id=?", (job_id,))
+        if row:
+            row["payload"] = json.loads(row.get("payload_json") or "{}")
+        return row
+
+    def mark(self, job_id: int, status: str) -> bool:
+        """Mark a finished (failed) job, e.g. 'retried' once the owner pressed «Qayta urinish». False if not failed."""
+        with self.db.tx() as conn:
+            cur = conn.execute("UPDATE jobs SET status=?, updated_at=? WHERE id=? AND status='failed'",
+                               (status, now_iso(), job_id))
+            return cur.rowcount > 0
+
+    def claim(self, job_id: int) -> Job | None:
+        """Claim one specific pending job now (the CLI's `new --run`)."""
+        with self.db.tx() as conn:
+            row = conn.execute("SELECT * FROM jobs WHERE id=? AND status='pending'", (job_id,)).fetchone()
+            if not row:
+                return None
+            conn.execute("UPDATE jobs SET status='running', attempts=attempts+1, updated_at=? WHERE id=?",
+                         (self._now(), job_id))
+        return Job(row["id"], row["kind"], json.loads(row["payload_json"]), row["attempts"] + 1, row["max_attempts"])
+
+    def running(self) -> list[dict[str, Any]]:
+        out = [dict(r) for r in self.db.query("SELECT * FROM jobs WHERE status='running' ORDER BY id")]
+        for r in out:
+            r["payload"] = json.loads(r.get("payload_json") or "{}")
+        return out
+
+    def requeue(self, job_id: int, reason: str) -> None:
+        """A 'running' row with nothing running it (an orphan) goes back to the queue."""
+        with self.db.tx() as conn:
+            conn.execute("""UPDATE jobs SET status='pending', attempts=MAX(attempts-1, 0), last_error=?, updated_at=?
+                            WHERE id=? AND status='running'""", (reason[:2000], now_iso(), job_id))
+
+    def retry_waiting(self) -> int:
+        return self.db.query("""SELECT COUNT(*) AS n FROM jobs WHERE status='pending' AND last_error IS NOT NULL
+                                AND attempts>0""")[0]["n"]
+
+    def for_video(self, video_id: int, kinds: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+        """Active (pending / running) jobs about this video."""
+        return [j for j in self.active(kinds or None) if json.loads(j["payload_json"] or "{}").get("video_id") == video_id]
 
     def recover_running(self) -> int:
         """Jobs left 'running' by a crash or restart go back to the queue."""

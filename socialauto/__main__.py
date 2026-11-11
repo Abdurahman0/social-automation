@@ -6,7 +6,8 @@
     youtube-auth        connect YouTube statistics (read-only browser consent, once)
     instagram-connect   connect Instagram statistics (read-only; paste a token from Graph API Explorer, once)
     refresh-analytics   fetch statistics now
-    new [topic]         queue a new idea (same as /new in Telegram)
+    new [idea] [--run]  start research about an idea (same as /new <idea> in Telegram); --run does it right now
+                        and prints the topics and the Telegram messages it queued
     download-model      download + verify the Uzbek speech model into models/ (the installers run this)
     dry-run on|off      test mode on this computer (off: approved reels really go into Buffer's queue)
 """
@@ -45,7 +46,14 @@ def cmd_run(settings, config_path=None) -> int:
     if app.workflow.content.is_existing():    # Task 09: his repo is cloned (or synced) in the background at start
         app.workflow.content.prepare_async()
     collector = make_collector(settings, app.db, app.kv, app.clock)
-    bot = TelegramBot(app, collector)
+    from .updater import Updater
+    bot = TelegramBot(app, collector, Updater(settings.root))      # Task 10: updates itself (fetch + ff-only)
+    from .netcheck import online
+    app.workflow.reporter.online = online     # a network blip while online is not «Internet yo'q»
+    try:
+        runner.startup_checks(app)            # Task 10: what the next steps need; failures reach Telegram once
+    except Exception:                         # noqa: BLE001
+        log.exception("Startup checks failed")
     from .netcheck import wait_until_online
     from .updater import RESTART_FILE
     watcher = runner.EnvWatcher(env_path, bot.request_stop, also=(settings.root / RESTART_FILE,))
@@ -150,6 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         sub.add_parser(name)
     p_new = sub.add_parser("new")
     p_new.add_argument("topic", nargs="*")
+    p_new.add_argument("--run", action="store_true", help="run the research now and print the topics")
     p_dry = sub.add_parser("dry-run")
     p_dry.add_argument("state", choices=["on", "off"])
     args = parser.parse_args(argv)
@@ -182,9 +191,39 @@ def main(argv: list[str] | None = None) -> int:
         alerts = make_collector(settings, app.db, app.kv, app.clock).refresh(force_reports=True)
         print("done" + (f"; problems: {[a[0] for a in alerts]}" if alerts else ""))
     elif args.cmd == "new":
-        from .app import build_app
-        app = build_app(settings)
-        print("queued" if app.workflow.request_new(" ".join(args.topic) or None) else "an idea is already being written")
+        return cmd_new(settings, " ".join(args.topic) or None, args.run)
+    return 0
+
+
+def cmd_new(settings, idea: str | None, run_now: bool = False) -> int:
+    from .app import build_app
+    app = build_app(settings)
+    first_outbox = (app.db.one("SELECT COALESCE(MAX(id), 0) AS n FROM outbox") or {}).get("n", 0)
+    res = app.workflow.start_research(idea)
+    if res.status != "started":
+        print("busy: a research is already running" if res.status == "busy_research"
+              else "busy: a chosen topic's script is being written")
+        return 1
+    print(f"research queued{f' about: {idea}' if idea else ' (the bot picks the topics)'}")
+    if not run_now:
+        return 0
+    job = next((app.jobs.claim(j["id"]) for j in app.jobs.for_video(res.video_id, ("research",))
+                if j["status"] == "pending"), None)
+    if job is None:
+        print("the research job was already taken by the running bot service")
+        return 0
+    app.workflow.run_job(job)
+    reel = app.workflow.reels.get(res.video_id) or {}
+    for i, t in enumerate(reel.get("topics") or [], start=1):
+        print(f"\n{i}. {t['title']}\n   angle: {t.get('angle', '')}\n   why now: {t.get('why_now', '')}\n"
+              f"   first 5 s: {t.get('hook_idea', '')}\n   sources: " +
+              ", ".join(dict.fromkeys(f.get('source', '') for f in t.get('facts') or [])))
+    if reel.get("idea_note"):
+        print(f"\nidea note: {reel['idea_note']}")
+    print("\nTelegram messages queued (outbox):")
+    for r in app.db.query("SELECT kind, payload_json FROM outbox WHERE id>? ORDER BY id", (first_outbox,)):
+        payload = json.loads(r["payload_json"])
+        print(f"- {r['kind']}: {payload.get('text') or ('topic list with buttons' if r['kind'] == 'topic_choice' else '')}")
     return 0
 
 

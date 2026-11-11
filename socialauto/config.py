@@ -100,6 +100,7 @@ class GitHubConfig:
     content_existing: str = ""                          # "owner/name" of the user's existing repo (Task 09)
     oauth_client_id: str = ""                           # public id of the GitHub OAuth app (device flow, no secret)
     update_check_hours: int = 6
+    auto_update: bool = True                            # Task 10: the bot fetches + fast-forwards updates itself
 
 
 @dataclass(frozen=True)

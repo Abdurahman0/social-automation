@@ -32,6 +32,7 @@ from .claude_budget import Budget, ClaudeBudgetWait, tashkent_time
 from .claude_client import ClaudeAuthError, ClaudeUsageLimit, backoff_until
 from .config import Settings
 from .db import KV, now_iso, parse_iso
+from .errors import ErrorReporter, NoTopicsError, explain, subject_of
 from .jobs import Job, JobQueue
 from .lessons import Lessons, safe_record
 from .outbox import Outbox
@@ -51,6 +52,20 @@ log = logging.getLogger(__name__)
 MAX_RENDER_TRIES = 3
 AUTH_RETRY = timedelta(minutes=30)
 CLAUDE_JOBS = ("research", "propose", "regenerate", "rewrite", "plan_from_voice", "reel_fix", "reel_publish")
+# The video status each job works in: «Qayta urinish» puts a stopped reel back there (Task 10).
+JOB_STATUS = {"research": RESEARCHING, "propose": DRAFTING, "plan_from_voice": DRAFTING, "regenerate": REVISING,
+              "rewrite": REVISING, "process_voice": VOICE_PROCESSING, "render": RENDERING, "reel_fix": RENDERING,
+              "reel_publish": PUBLISHING}
+NEW_JOBS = {RESEARCHING: ("research",), DRAFTING: ("propose", "plan_from_voice")}
+
+
+@dataclass
+class NewResult:
+    """What /new did: started (a new research), busy_research (one is really running), busy_script (a chosen
+    topic's script is being written)."""
+    status: str
+    video_id: int | None = None
+    idea: str | None = None
 
 
 @dataclass
@@ -92,6 +107,7 @@ class Workflow:
         self.broll_providers = broll_providers or []
         self.public_files = public_files
         self.cfg = settings.reel
+        self.reporter = ErrorReporter(outbox, kv, clock)
 
     def next_slot(self) -> datetime:
         return slots.next_free_slot(self.settings.schedule, self.clock(), self.store.taken_slots())
@@ -100,6 +116,10 @@ class Workflow:
         """Propose the next idea when the next free slot is close and nothing is in the pipeline."""
         if self.store.videos(ACTIVE, limit=1):
             return
+        last = self.store.videos(limit=1)
+        if last and last[0]["status"] == FAILED and \
+                self.clock() - parse_iso(last[0]["updated_at"]) < timedelta(hours=24):
+            return               # Task 10: the owner was told and has «Qayta urinish»; no automatic loop of failures
         if self.next_slot() - self.clock() <= timedelta(hours=self.settings.schedule.propose_lead_hours):
             self.request_new()
 
@@ -246,16 +266,49 @@ class Workflow:
 
     # ------------------------------------------------------------------------------------- 1. research + topic
     def request_new(self, topic: str | None = None) -> int | None:
-        if self.store.videos([RESEARCHING, DRAFTING]):
-            return None
-        video_id = self.store.create_video(RESEARCHING, topic or "", slot_at=self.next_slot())
+        res = self.start_research(topic)
+        return res.video_id if res.status == "started" else None
+
+    def start_research(self, idea: str | None = None) -> NewResult:
+        """/new [idea]. A reel in RESEARCHING / DRAFTING blocks it only while its job is really alive; a stuck one
+        (no live job) is cleaned up (Task 10). A research that only waits to retry after an error gives way to the
+        owner's new request."""
+        idea = " ".join((idea or "").split())[:300] or None
+        for video in self.store.videos([RESEARCHING, DRAFTING]):
+            alive = self.jobs.for_video(video["id"], NEW_JOBS[video["status"]])
+            if video["status"] == RESEARCHING:
+                fresh = [j for j in alive if j["status"] == "running" or not j["last_error"]]
+                if fresh:
+                    return NewResult("busy_research", video["id"], video["topic"] or None)
+                if alive:                                           # only waiting to retry after an error
+                    self.jobs.cancel_for_video(video["id"], "the owner asked for a new research", ("research",))
+                self.store.set_status(video["id"], FAILED, slot_at=None,
+                                      last_error="Tadqiqot to'xtab qolgan edi — yangi /new bilan almashtirildi")
+                log.info("Stuck research of video %s cleaned up for a new /new", video["id"])
+            elif alive:
+                return NewResult("busy_script", video["id"], video["title"] or video["topic"] or None)
+            else:                                                   # a chosen topic lost its job: resume it
+                self._resume_drafting(video)
+        video_id = self.store.create_video(RESEARCHING, idea or "", slot_at=self.next_slot())
         self.reels.upsert(video_id, base=naming.base_name(self.publish_date(self.store.video(video_id)), "tadqiqot"),
-                          step="research")
-        self.jobs.enqueue("research", {"video_id": video_id, "topic": topic}, dedupe_key=f"research:{video_id}")
-        return video_id
+                          step="research", idea=idea)
+        self.jobs.enqueue("research", {"video_id": video_id, "topic": idea}, dedupe_key=f"research:{video_id}")
+        return NewResult("started", video_id, idea)
+
+    def _resume_drafting(self, video: dict) -> None:
+        vid = video["id"]
+        if video["origin"] == "voice" and video["voice_id"]:
+            self.jobs.enqueue("plan_from_voice", {"video_id": vid, "voice_id": video["voice_id"]},
+                              dedupe_key=f"plan_from_voice:{vid}")
+        else:
+            self.jobs.enqueue("propose", {"video_id": vid}, dedupe_key=f"propose:{vid}")
+        log.info("Video %s was drafting with no job: resumed", vid)
 
     def recent_titles(self) -> list[str]:
-        titles = self.store.recent_topics(self.cfg.recent_posts)
+        # Only chosen topics count: an idea typed with /new (a reel still in research, or one that stopped there) is
+        # not "already covered" — otherwise the owner's own idea would filter out every topic about it (Task 10).
+        titles = [r["topic"] for r in self.store.db.query(
+            "SELECT topic FROM videos WHERE topic<>'' AND title<>'' ORDER BY id DESC LIMIT ?", (self.cfg.recent_posts,))]
         titles += [r["title"] for r in self.store.db.query("SELECT title FROM videos WHERE title<>'' ORDER BY id DESC LIMIT ?",
                                                              (self.cfg.recent_posts,))]
         return list(dict.fromkeys(titles + research_mod.earlier_research_titles(self.places.research)))
@@ -278,25 +331,35 @@ class Workflow:
         video = self.store.video(p["video_id"])
         if not video or video["status"] != RESEARCHING:
             return
+        idea = p.get("topic") or video.get("topic") or None          # Task 10: the owner's idea is the main constraint
         hint, stats = self.buffer_insight()
-        if p.get("topic"):
-            hint += f". The owner asked for this topic: {p['topic']} (stay within water/wastewater)."
         avoid = self.recent_titles() + list(p.get("avoid") or [])
-        result = self.reel_writer.research(hint, avoid, self.clock().date())
-        topics = research_mod.dedupe(result["topics"], avoid, recent_limit=0)
+        today = self.clock().date()
+        result = self.reel_writer.research(hint, avoid, today, idea=idea)
+        found = list(result.get("topics") or [])
+        topics, dropped = research_mod.filter_topics(found, avoid, recent_limit=0, idea=idea)
         if len(topics) < 3:
-            safe_record(self.lessons, "idea", [f"research returned only {len(topics)} new in-scope topics with sources"])
-            more = self.reel_writer.research(hint + " Find DIFFERENT topics than before.",
-                                             avoid + [t["title"] for t in result["topics"]], self.clock().date())
-            topics = research_mod.dedupe(topics + more["topics"], avoid, recent_limit=0)
+            safe_record(self.lessons, "idea", [f"research returned only {len(topics)} new in-scope topics with sources"
+                                               + (f" for the owner's idea «{idea}»" if idea else "")])
+            more = self.reel_writer.research(hint + " Find DIFFERENT topics than before" +
+                                             (" — still about the owner's idea." if idea else "."),
+                                             avoid + [t["title"] for t in found], today, idea=idea)
+            found += list(more.get("topics") or [])
+            topics, dropped2 = research_mod.filter_topics(topics + list(more.get("topics") or []), avoid,
+                                                          recent_limit=0, idea=idea)
+            dropped = {k: dropped[k] + dropped2[k] for k in dropped}
+            result.setdefault("idea_note", more.get("idea_note", ""))
         if not topics:
-            raise ValueError("research found no new water/wastewater topic with checkable sources")
+            reason = research_mod.why_empty(len(found), dropped, idea)
+            safe_record(self.lessons, "idea", [f"research gave no usable topic: {reason}"])
+            raise NoTopicsError(reason, f"research: no usable topic ({dropped}, {len(found)} found)")
         topics = topics[:5]
+        idea_note = (result.get("idea_note") or "").strip() if idea else ""
         base = naming.base_name(self.publish_date(video), naming.slugify(topics[0]["title"]))
         path = research_mod.write_markdown(self.places.research_file(base), topics, result["format_insight"], stats,
-                                           self.clock().date())
+                                           today, idea=idea, idea_note=idea_note)
         self.reels.upsert(video["id"], base=base, research_file=str(path), topics=topics, insight=result["format_insight"],
-                          step="research")
+                          step="research", idea=idea or None, idea_note=idea_note or None)
         self.store.set_status(video["id"], TOPIC_PENDING)
         token = self.store.open_approval(video["id"], "topic", len(topics), self.settings.dry_run)
         self.outbox.add("topic_choice", video_id=video["id"], approval=token)
@@ -311,9 +374,11 @@ class Workflow:
         reel = self.reels.get(video["id"])
         if choice == "more":
             self.store.set_status(video["id"], RESEARCHING)
-            self.jobs.enqueue("research", {"video_id": video["id"], "avoid": [t["title"] for t in reel["topics"]]},
+            idea = video.get("topic") or None                       # still about the owner's idea
+            self.jobs.enqueue("research", {"video_id": video["id"], "topic": idea,
+                                           "avoid": [t["title"] for t in reel["topics"]]},
                               dedupe_key=f"research:{video['id']}:more:{token}")
-            return Result(True, "🔎 Boshqa mavzular qidirilmoqda.")
+            return Result(True, "🔎 Boshqa mavzular qidirilmoqda" + (f" («{idea}» bo'yicha)." if idea else "."))
         topic = reel["topics"][int(choice)]
         new_base = self.base_for(video, topic["title"])
         old_file = Path(reel["research_file"]) if reel.get("research_file") else None
@@ -746,6 +811,10 @@ class Workflow:
                                                captions.get("story_text") or "Yangi reel!", self.public_files)
         except Exception as exc:                              # noqa: BLE001 - the Telegram message still goes out
             log.warning("Story draft not created: %s", exc)
+            self.reporter.problem(f"story:{video['id']}", exc, "story",
+                                  text=f"⚠️ «Story qoralamasi»: «{video['title']}» uchun Buffer'da story qoralamasi "
+                                       f"yaratilmadi ({explain(exc)[1]}). Storyni muqovangiz va havola bilan o'zingiz "
+                                       "joylashingiz mumkin — kerakli narsalar keyingi xabarda.")
         self.reels.upsert(video["id"], live_link=link, story_draft=story, step="story")
         self.store.set_status(video["id"], STORY_PENDING)
         self.outbox.add("story_ready", video_id=video["id"])
@@ -781,8 +850,19 @@ class Workflow:
         self.kv.set(key, now.isoformat())
         try:
             self.refresh_buffer_state(video["id"], reel)
+            self.reporter.resolved("live_check")
         except Exception as exc:                              # noqa: BLE001 - checked again next time
             log.warning("Buffer state check failed: %s", exc)
+            self._live_check_problem(exc)
+
+    def _live_check_problem(self, exc: BaseException) -> None:
+        if isinstance(exc, BufferAuthError):
+            self._owner_alert("buffer", "🔑 Buffer API kaliti ishlamayapti (eskirgan yoki o'chirilgan). Yangi kalitni "
+                                        "saytdagi «Sozlamalar» ga yozing — bot o'zi davom etadi.")
+            return
+        self.reporter.problem("live_check", exc, "live_check",
+                              text=f"⚠️ «Buffer holati»: navbatdagi reel holatini tekshirib bo'lmadi ({explain(exc)[1]}). "
+                                   f"Har {self.cfg.live_check_minutes} daqiqada o'zim qayta tekshiraman.")
 
     def story_done(self, video_id: int) -> Result:
         video = self.store.video(video_id)
@@ -804,8 +884,10 @@ class Workflow:
                     self.kv.set(key, now.isoformat())
                     try:
                         self.check_live(video)
+                        self.reporter.resolved("live_check")
                     except Exception as exc:                  # noqa: BLE001 - checked again next time
                         log.warning("Live check failed: %s", exc)
+                        self._live_check_problem(exc)
                 continue
             if video["status"] in (PUBLISHING, STORY_PENDING, COVER_WAITING) or not video["slot_at"]:
                 continue
@@ -832,7 +914,10 @@ class Workflow:
         for video in self.store.videos([RESEARCHING, PUBLISHING]):
             kind = "research" if video["status"] == RESEARCHING else "reel_publish"
             if (kind, video["id"]) not in active:
-                self.jobs.enqueue(kind, {"video_id": video["id"]}, dedupe_key=f"{kind}:{video['id']}")
+                payload = {"video_id": video["id"]}
+                if kind == "research" and video["topic"]:
+                    payload["topic"] = video["topic"]                 # the owner's idea survives a restart
+                self.jobs.enqueue(kind, payload, dedupe_key=f"{kind}:{video['id']}")
                 done.append(f"video {video['id']}: {kind} resumed")
         return done
 
@@ -849,12 +934,7 @@ class Workflow:
             vid, st = video["id"], video["status"]
             mine = {k for k, v in active if v == vid}
             if st == DRAFTING and not mine & {"propose", "plan_from_voice"}:
-                if video["origin"] == "voice" and video["voice_id"]:
-                    self.jobs.enqueue("plan_from_voice", {"video_id": vid, "voice_id": video["voice_id"]},
-                                      dedupe_key=f"plan_from_voice:{vid}")
-                else:
-                    self.jobs.enqueue("propose", {"video_id": vid, "topic": video["topic"] or None},
-                                      dedupe_key=f"propose:{vid}")
+                self._resume_drafting(video)
                 done.append(f"video {vid}: drafting resumed")
             elif st == VOICE_PROCESSING and "process_voice" not in mine and video["voice_id"]:
                 self.jobs.enqueue("process_voice", {"video_id": vid, "voice_id": video["voice_id"]},
@@ -870,13 +950,20 @@ class Workflow:
         return done
 
     def run_job(self, job: Job) -> None:
-        """Run one job and map every failure to the right reaction (postpone, retry, alert, give up)."""
+        """Run one job and map every failure to the right reaction (postpone, retry, alert, give up). Task 10: every
+        failure reaches the owner once (plain Uzbek), a give-up always does, with a «Qayta urinish» button."""
         try:
             if job.kind == "render":
                 self.job_render(job.payload, job)
             else:
                 self.handlers()[job.kind](job.payload)
-            self.jobs.complete(job.id)
+            if not self.jobs.is_current(job):
+                log.info("Job %s %s finished after the watchdog had re-queued it: result kept, row untouched",
+                         job.id, job.kind)
+                return
+            self.jobs.complete(job)
+            self.kv.delete(f"joberr:{job.id}")
+            self.reporter.back_online()                       # it worked: if the network was down, it is back
         except ClaudeBudgetWait as exc:
             self.jobs.postpone(job, exc.until, exc.reason)
         except ClaudeUsageLimit as exc:
@@ -896,19 +983,85 @@ class Workflow:
                                         "keyin o'zi tayyorlanadi.")
         except BufferRateLimit as exc:
             self.jobs.postpone(job, self.clock() + timedelta(minutes=20), str(exc))
-        except Exception as exc:   # noqa: BLE001 - logged, retried with back-off, then given up quietly
+        except Exception as exc:   # noqa: BLE001 - logged, told to the owner, retried with back-off, then given up
             log.exception("Job %s %s failed", job.id, job.kind)
-            if not self.jobs.retry_later(job, f"{type(exc).__name__}: {exc}", min(3600, 60 * 2 ** job.attempts)):
-                self._give_up(job, f"{type(exc).__name__}: {exc}")
+            self._failed(job, exc)
 
-    def _give_up(self, job: Job, error: str) -> None:
+    def _failed(self, job: Job, exc: BaseException | str, delay_seconds: int | None = None) -> None:
+        if isinstance(exc, BaseException) and not self.jobs.is_current(job):
+            return                                            # a stale run the watchdog already re-queued
+        error = f"{type(exc).__name__}: {exc}" if isinstance(exc, BaseException) else str(exc)
+        delay = delay_seconds if delay_seconds is not None else min(3600, 60 * 2 ** job.attempts)
+        final = isinstance(exc, NoTopicsError)                # a retry gives the same answer: the owner decides
+        subject = self._subject(job)
+        if self.jobs.retry_later(job, error, delay, force_fail=final):
+            try:
+                self.reporter.job_failed(job, exc, max(1, delay // 60), subject)
+            except Exception:                                 # noqa: BLE001 - reporting never breaks the queue
+                log.exception("could not queue the error message")
+            return
+        self._give_up(job, error, exc, subject)
+
+    def _subject(self, job: Job) -> str:
+        video = self.store.video(job.payload.get("video_id", 0)) if job.payload.get("video_id") else None
+        return subject_of(video, job.payload)
+
+    def _give_up(self, job: Job, error: str, exc: BaseException | str | None = None, subject: str | None = None) -> None:
         p = job.payload
         stage = {"render": "render", "process_voice": "voice", "research": "idea"}.get(job.kind, "script")
         safe_record(self.lessons, stage, [f"{job.kind} gave up: {error[:300]}"])
         video = self.store.video(p.get("video_id", 0))
+        reason = explain(exc if exc is not None else error)[1]
         if video and video["status"] in ACTIVE:
-            self.store.set_status(video["id"], FAILED, slot_at=None, last_error=error[:1000])
+            self.store.set_status(video["id"], FAILED, slot_at=None, last_error=reason[:1000])
         log.error("Job %s %s gave up: %s", job.id, job.kind, error[:300])
+        try:
+            self.reporter.job_gave_up(job, exc if exc is not None else error,
+                                      subject if subject is not None else subject_of(video, p))
+        except Exception:                                     # noqa: BLE001
+            log.exception("could not queue the give-up message")
+
+    def job_timed_out(self, job: Job, minutes: int) -> None:
+        """The watchdog: a job ran longer than its limit. Told to the owner and re-queued (the stuck run, if it ever
+        finishes, changes nothing in the queue)."""
+        subject = self._subject(job)
+        self.reporter.stuck(job, minutes, subject)
+        error = f"TimeoutError: the job ran longer than {minutes} minutes"
+        if not self.jobs.retry_later(job, error, 300):
+            self._give_up(job, error, TimeoutError(f"{minutes} daqiqadan ko'p davom etdi"), subject)
+
+    def retry_failed(self, job_id: int, other_topic: bool = False) -> Result:
+        """«🔄 Qayta urinish» / «🔎 Boshqa mavzu» under a give-up message: the same job again (or, for research, a
+        new research without the old idea), the reel back in its step."""
+        row = self.jobs.get(job_id)
+        if not row or row["status"] != "failed":
+            return Result(False, "Bu ish allaqachon qayta boshlangan yoki tugagan.")
+        p = dict(row["payload"])
+        video = self.store.video(p["video_id"]) if p.get("video_id") else None
+        if video and video["status"] not in (FAILED, JOB_STATUS.get(row["kind"])):
+            return Result(False, "Bu reel boshqa bosqichga o'tib bo'lgan — qayta urinish kerak emas.")
+        if row["kind"] == "research" and any(
+                self.jobs.for_video(v["id"], ("research",)) for v in self.store.videos([RESEARCHING])
+                if not video or v["id"] != video["id"]):
+            return Result(False, "Hozir boshqa tadqiqot ketyapti — u tugashini kuting.")
+        if not self.jobs.mark(job_id, "retried"):
+            return Result(False, "Bu ish allaqachon qayta boshlangan.")
+        if other_topic:
+            p["topic"] = None
+            p["avoid"] = [t["title"] for t in ((self.reels.get(video["id"]) or {}).get("topics") or [])] if video else []
+        if video:
+            fields: dict[str, Any] = {"last_error": None}
+            if not video["slot_at"]:
+                fields["slot_at"] = self.next_slot()
+            if other_topic:
+                fields["topic"] = ""
+                self.reels.upsert(video["id"], idea=None, idea_note=None)
+            self.store.set_status(video["id"], JOB_STATUS.get(row["kind"], video["status"]), **fields)
+        self.kv.delete(f"joberr:{job_id}")
+        self.jobs.enqueue(row["kind"], p, dedupe_key=f"{row['kind']}:retry:{job_id}",
+                          max_attempts=row["max_attempts"])
+        step = "Boshqa mavzular qidirilyapti" if other_topic else "Qayta urinyapman"
+        return Result(True, f"🔄 {step}" + (f": «{subject_of(video, p)}»" if video else "") + ". Natijani yuboraman.")
 
     def _owner_alert(self, what: str, text: str) -> None:
         """An alert the owner must act on, at most once a day per problem (law 5)."""

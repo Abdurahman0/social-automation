@@ -842,3 +842,10 @@ a.btn { text-decoration: none; }
   .rc-link { flex-direction: column; }
   .rc-link .btn { width: 100%; justify-content: center; }
 }
+
+/* Task 10: a reel that stopped shows its reason in plain words */
+.err-line { margin-top: 8px; font-size: 12.5px; line-height: 1.45; color: var(--bad); overflow-wrap: anywhere; }
+.err-line.big { font-size: 15px; margin: 6px 0 4px; }
+.reel-card.stopped { border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+.stop-card { border-left: 4px solid var(--bad); }
+.idea-line { font-size: 17px; font-weight: 700; margin: 4px 0; overflow-wrap: anywhere; }

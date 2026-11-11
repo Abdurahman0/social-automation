@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 import hmac
+import re
 import secrets
 import threading
 import time
@@ -24,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from ..analytics.collector import TASHKENT, UPDATED_KEY, Collector, make_collector, media_key
 from ..analytics.metrics import Metrics
 from ..config import Settings
-from ..db import KV, Database, parse_iso
+from ..db import KV, Database, parse_iso, utcnow
 from ..store import STATUS_UZ, Store
 from .. import slots
 
@@ -255,6 +256,28 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
         authed(request)
         return reel_pipeline()
 
+    STEP_STAGE = {"research": "research", "script": "script", "voice": "script", "broll": "broll", "render": "edit",
+                  "review": "edit", "cover": "publish", "publish": "publish", "buffer": "publish", "story": "live",
+                  "done": "live"}
+
+    def failed_stage(v: dict, r: dict) -> tuple[str, str] | None:
+        """Task 10: a reel that stopped stays visible (for two weeks) in the step where it stopped, with its reason."""
+        if v["status"] != "failed" or utcnow() - parse_iso(v["updated_at"]) > timedelta(days=14):
+            return None
+        return STEP_STAGE.get(r.get("step") or "research", "research"), "Siz"
+
+    def error_text(v: dict) -> str | None:
+        from ..errors import explain, short
+        err = v.get("last_error")
+        if not err or v["status"] != "failed":
+            return None
+        if re.match(r"^\w+(Error|Exception|Expired)\b", err):          # an older raw error: plain words instead
+            return short(explain(err)[1], 200)
+        return short(err, 200)
+
+    def video_title(v: dict) -> str:
+        return v["title"] or (f"G'oya: {v['topic']}" if v.get("topic") else "Yangi tadqiqot")
+
     def reel_pipeline() -> dict:
         from ..reel.state import STAGES, STATUS_STAGE, Reels
         reels = Reels(db)
@@ -263,13 +286,14 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
         for key, label in STAGES:
             items = []
             for v in rows:
-                stage = STATUS_STAGE.get(v["status"])
+                r = (reels.get(v["id"]) or {}) if v["status"] == "failed" else None
+                stage = STATUS_STAGE.get(v["status"]) or (failed_stage(v, r) if r is not None else None)
                 if not stage or stage[0] != key:
                     continue
                 if v["status"] == "done" and len([i for i in items if i["done"]]) >= 8:
                     continue
-                r = reels.get(v["id"]) or {}
-                items.append({"key": reel_key(v["id"]), "title": v["title"] or "Yangi tadqiqot",
+                r = r if r is not None else (reels.get(v["id"]) or {})
+                items.append({"key": reel_key(v["id"]), "title": video_title(v), "error": error_text(v),
                               "status": STATUS_UZ.get(v["status"], ""), "who": stage[1], "done": v["status"] == "done",
                               "version": r.get("version") or 0,
                               "date": r.get("base", "")[:10] or None,
@@ -387,10 +411,14 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
         if work and n and (work / f"frames_v{n}").is_dir():
             for i, f in enumerate(sorted((work / f"frames_v{n}").glob("*.jpg"))):
                 frames.append({"label": script_mod.PART_UZ.get(f.stem.split("-", 1)[1], f.stem), "src": f"/media/reelframe/{key}/{n}/{i}"})
-        stage = STATUS_STAGE.get(v["status"], ("", ""))
+        if v["status"] == "failed":
+            stage = (STEP_STAGE.get(r.get("step") or "research", "research"), "Siz")
+        else:
+            stage = STATUS_STAGE.get(v["status"], ("", ""))
         names = {"instagram": "Instagram", "youtube": "YouTube", "linkedin": "LinkedIn"}
         return {
-            "title": v["title"] or "Yangi tadqiqot", "status": STATUS_UZ.get(v["status"], ""), "who": stage[1],
+            "title": video_title(v), "status": STATUS_UZ.get(v["status"], ""), "who": stage[1],
+            "error": error_text(v), "idea": r.get("idea"), "idea_note": r.get("idea_note"),
             "stage": dict(STAGES).get(stage[0], ""), "stage_key": stage[0], "name": base,
             "slot": slots.describe(settings.schedule, parse_iso(v["slot_at"])) if v["slot_at"] else None,
             "version": n, "versions": versions, "research": research, "topic_index": r.get("topic_index"),
@@ -741,7 +769,11 @@ def create_app(settings: Settings, db: Database | None = None, collector: Collec
 
 def serve(settings: Settings) -> None:
     import uvicorn
-    from ..runner import RESTART_CODE
+    from ..runner import RESTART_CODE, EnvWatcher
+    from ..updater import RESTART_FILE
+    # The bot may install an update by itself (Task 10): the website restarts too, so both run the same code.
+    EnvWatcher(settings.root / RESTART_FILE, lambda: threading.Timer(2.0, lambda: os._exit(RESTART_CODE)).start(),
+               every=10.0).start()
     uvicorn.run(create_app(settings, restart=lambda: os._exit(RESTART_CODE)), host=settings.web.host, port=settings.web.port, log_level="warning",
                 proxy_headers=False)
 

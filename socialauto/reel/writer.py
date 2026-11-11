@@ -89,8 +89,9 @@ class ReelWriter:
     def _system(self) -> str:
         return system(self.niche, self.language) + brand_block(self._ctx().get("brand"))
 
-    def research(self, insight_hint: str, avoid: list[str], today: date) -> dict:
-        prompt = research_mod.prompt(self.niche, LANG_NAMES.get(self.language, self.language), insight_hint, avoid, today)
+    def research(self, insight_hint: str, avoid: list[str], today: date, idea: str | None = None) -> dict:
+        prompt = research_mod.prompt(self.niche, LANG_NAMES.get(self.language, self.language), insight_hint, avoid, today,
+                                     idea)
         examples = self._ctx().get("examples")
         if examples:
             prompt += ("\n\nThe author's own earlier reels and audit (examples only: do not repeat these topics; learn "
