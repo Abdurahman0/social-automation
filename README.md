@@ -181,14 +181,32 @@ boot when installed from an administrator PowerShell, otherwise at login). Witho
 "Internet yo'q — kutyapman" and the bot waits quietly.
 
 ### Update / uninstall
-Settings shows "Yangilanish bor" when the owner pushed a new version: one button, fast-forward only, never touches
+The bot checks for a new version every `update_check_hours` (6) and installs it itself: fetch + fast-forward only,
+then the bot and the website restart (database changes migrate automatically). If it cannot (files changed by hand,
+local commits) you get one Telegram message; `auto_update = false` in `config.local.toml` turns this off.
+Settings also shows "Yangilanish bor" when the owner pushed a new version: one button, fast-forward only, never touches
 `.env`, `secrets/`, `data/`, `config.local.toml` or your content repo, then restarts the services. By hand:
 `git pull --ff-only && ./install.sh`. Uninstall: `./install.sh --uninstall` (your folder, `.env` and data are kept).
 Your own settings (for example `dry_run = false`) go to `config.local.toml`, never into `config.toml`.
 
 ### Telegram commands
-`/new [topic]` start now · `/queue`, `/status` · `/stats` · `/pause`, `/resume` · `/lessons`, `/usage`.
+`/new <idea>` research topics around YOUR idea, e.g. `/new Toshkentda ichimlik suvi`: Claude searches the web for 3-5
+angles about that idea (each with «nega hozir», the first-5-seconds hook and sources), still in the water niche; an
+idea outside water gets the closest water angles and a note saying so. `/new` alone asks for the idea (send it as the
+next message, or `/skip` / «🎲 Bot o'zi tanlasin» and the bot picks the topics itself) ·
+`/queue`, `/status` (also the last error and the jobs waiting to retry) · `/stats` · `/pause`, `/resume` ·
+`/lessons`, `/usage`.
+
+**Errors come to Telegram** (Task 10), in plain Uzbek: the first failure of any step (which step, which reel, why,
+when the bot retries), a stop with «🔄 Qayta urinish» (and «🔎 Boshqa mavzu» for research), research with no usable
+topic (and why), a stuck job (research > 20 min, render > 60 min), a broken command, a failed statistics refresh,
+a failed automatic update, and missing tools at start (ffmpeg, the speech model, Remotion, the Buffer key). One message
+per problem: no internet = one «Internet yo'q», then one «qayta ulandi». A stopped reel stays on the website's Jarayon
+page with its reason.
+
 Terminal: `.venv/bin/python -m socialauto check` shows what is configured and what is missing (no secrets printed).
+`.venv/bin/python -m socialauto new "Toshkentda ichimlik suvi" --run` runs that research right now and prints the
+topics and the Telegram messages it queued.
 
 ### Layout
 ```
@@ -197,7 +215,9 @@ socialauto/
   workflow.py                                    the flow (research → … → Buffer queue → story draft)
   reel/      research writer script broll align layout render checklist publish buffer naming state
   platforms/ youtube.py instagram.py             READ-ONLY statistics clients; tunnel.py dryrun.py
-  runner.py                                      bot service: waits for the token, restarts on .env change, Claude alert
+  runner.py                                      bot service: waits for the token, restarts on .env change, Claude alert,
+                                                 startup checks
+  errors.py                                      Task 10: plain-Uzbek error messages to Telegram, no spam
   env_store.py web/setup.py                      the Setup page's .env store and checks
   content_repo.py                                the user's OWN content repo; refuses any push to the code repo
   github_account.py claude_login.py web/accounts.py   GitHub (device flow), Claude login, Instagram/YouTube logins

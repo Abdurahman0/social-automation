@@ -242,3 +242,31 @@ Each can be changed; the config line or file is named.
 - **Brand rules** (brand/*.md without templates, guidance-book.md, brand/workflow skills) go into the system prompt of
   every research/script/caption call (Claude runs in safe mode, so the text is passed, not loaded as skills). The
   first "maksimum N s" found sets the length window to N−15…N (his: 30–45 s) for scripts, voice and video checks.
+
+## Task 10 — every error to Telegram; «/new <idea>»
+- **One reporter** (`socialauto/errors.py`) writes plain-Uzbek messages into the durable outbox (kind `error`, survives
+  restarts). Reasons come from a cause map (no internet, timeout, Claude WebSearch / CLI, ffmpeg, speech model, B-roll
+  keys, disk full, push rejected, checklist, no topics); anything else is one shortened line with tokens, keys, URL
+  logins and long opaque strings removed and paths cut to the file name. Stack traces stay in the log.
+- **No spam:** one message per job per distinct error code; a periodic problem (statistics, auto-update, startup
+  checks, the loop) again only after it worked in between (or after 24 h). Offline = one «Internet yo'q» and one
+  «qayta ulandi»; a connection error while `netcheck` says we are online is an ordinary job error, not "offline".
+- **Research with zero usable topics gives up at once** (a retry returns the same thing) with the reason counted per
+  filter (off-niche / duplicate / no source) and the buttons «🔄 Qayta urinish» and «🔎 Boshqa mavzu».
+- **The idea is the main constraint of the prompt** (`research.prompt(..., idea)`), and the filters respect it: the
+  owner's own idea is never in the "already covered" list (only chosen topics count), the idea's own words do not make
+  two angles "the same topic", near-duplicates of earlier titles are dropped only above 0.85 similarity, and the niche
+  check also reads the hook, «nega hozir» and the facts.
+- **`/new` alone asks** «Qaysi g'oya bo'yicha?» (next message = the idea; `/skip` or «🎲 Bot o'zi tanlasin» = the old
+  behaviour, the bot picks). `/new` while paused says so instead of «Tadqiqot boshlandi».
+- **Stuck reels:** «allaqachon ketyapti» only while a research job is running or freshly queued; a research waiting
+  to retry after an error gives way to the owner's new /new; RESEARCHING with no job is marked «To'xtab qoldi»;
+  DRAFTING with no job gets its job back.
+- **Watchdog:** limits per kind (research 20, render 60, publish 30, voice 20 min, others 30). A thread cannot be
+  killed safely, so a stuck run is abandoned: the job is re-queued (the late finish is ignored by an attempts check on
+  every queue update) and no second job of that kind starts while the stuck one is alive (memory).
+- **Automatic updates in the bot** (`[github] auto_update = true`, every `update_check_hours`): fetch + fast-forward
+  only (the same `Updater`), then `data/restart_request`; the website now watches that file too and restarts, so both
+  run the new code. DB changes are migrations that run at start (`_add_idea`).
+- **A stopped research is not restarted automatically** for 24 h (the owner has the button); otherwise a broken Claude
+  would produce a stop message every hour.
