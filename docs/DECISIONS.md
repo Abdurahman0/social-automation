@@ -270,3 +270,24 @@ Each can be changed; the config line or file is named.
   run the new code. DB changes are migrations that run at start (`_add_idea`).
 - **A stopped research is not restarted automatically** for 24 h (the owner has the button); otherwise a broken Claude
   would produce a stop message every hour.
+
+## Task 11 — UTF-8 everywhere (Windows cp949 crash)
+- **Every text I/O names UTF-8.** Subprocess calls in text mode get `encoding="utf-8", errors="replace"`: a strange
+  byte from git/ffmpeg/Claude must never stop a step. Files get `encoding="utf-8"` (strict: a broken file is a real
+  error). Binary I/O (`rb`/`wb`, `read_bytes`, Pillow, wave) is left as is.
+- **Guard:** `tests/test_utf8.py` AST-scans `socialauto/` and `scripts/` and fails on any text-mode `open`,
+  `Path.open`, `read_text`, `write_text`, `subprocess.*(text=True | universal_newlines=True)` without `encoding=`
+  (subprocess also `errors=`), log `FileHandler`s, text `tempfile`s and `TextIOWrapper`s. New code cannot bring the bug
+  back.
+- **Claude child:** `child_env` sets `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8`, so any Python helper the CLI starts
+  is UTF-8 too.
+- **Program entry (`socialauto/utf8.py`):** on Windows, when UTF-8 mode is off, `python -m socialauto ...` re-runs
+  itself once as `python -X utf8 -m socialauto ...` (loop guard `SOCIALAUTO_UTF8_REEXEC`). This matters on PCs whose
+  running `windows_service.ps1` loop is the old one (PowerShell keeps the script in memory): after the bot updates
+  itself, the old loop restarts Python without UTF-8 mode, and the re-exec fixes that until the next `install.ps1`.
+  stdout/stderr are reconfigured to UTF-8 with replacement on every platform (no-op when there is no console).
+- **Launchers:** `install.ps1` and `scripts/windows_service.ps1` set `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8`,
+  `[Console]::OutputEncoding = UTF8`, and start Python with `-X utf8`. The .ps1 files stay pure ASCII (Windows
+  PowerShell 5.1 reads BOM-less files in the ANSI code page).
+- **Stuck reels:** no migration; a reel stopped by the cp949 error is restarted by the existing «🔄 Qayta urinish»
+  button (test: the research runs again with the idea intact and stops at topic approval; nothing is posted).
