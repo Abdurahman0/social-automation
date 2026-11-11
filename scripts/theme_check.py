@@ -113,12 +113,12 @@ def run(publish: bool) -> int:
         troot = Path(tmp)
         for name in ("assets", "models"):
             (troot / name).symlink_to(ROOT / name)
-        (troot / "config.toml").write_text((ROOT / "config.toml").read_text())
+        (troot / "config.toml").write_text((ROOT / "config.toml").read_text(encoding="utf-8"), encoding="utf-8")
         s2 = replace(load_settings(troot / "config.toml", troot / "none.env", root=troot), dashboard_password=PASSWORD)
         seed_fixture(s2)
         base = start_server(s2, clock=lambda: datetime(2026, 11, 8, 12, tzinfo=timezone.utc))
         froot = Path(tmp2)                                   # an unconfigured copy: the first-run Setup page
-        (froot / "config.toml").write_text((ROOT / "config.toml").read_text())
+        (froot / "config.toml").write_text((ROOT / "config.toml").read_text(encoding="utf-8"), encoding="utf-8")
         fresh = start_server(replace(load_settings(froot / "config.toml", froot / "none.env", root=froot), dashboard_password=""))
 
         with sync_playwright() as p:

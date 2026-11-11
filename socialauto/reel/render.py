@@ -128,7 +128,7 @@ class ReelRenderer:
         cmd = [str(self.remotion_bin()), "render", "src/index.ts", "Reel", str(silent), f"--props={props_file}",
                f"--public-dir={work}", f"--concurrency={self.concurrency}", "--muted", "--log=error",
                "--disallow-parallel-encoding", "--offthreadvideo-cache-size-in-bytes=268435456"]   # law 9: low memory
-        res = subprocess.run(cmd, cwd=self.root / "remotion", capture_output=True, text=True, timeout=3600)
+        res = subprocess.run(cmd, cwd=self.root / "remotion", capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600)
         if res.returncode != 0 or not silent.exists():
             raise ReelRenderError(f"Remotion render failed: {(res.stderr or res.stdout)[-600:]}")
         # 3. Voice + music (ducked) -> -14 LUFS, muxed.

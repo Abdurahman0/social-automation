@@ -273,4 +273,4 @@ def video_pending(app, voice: Path) -> int:
 
 def dryrun_entries(app) -> list[dict]:
     path = app.settings.dryrun_posts_path
-    return json.loads(path.read_text()) if path.exists() else []
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else []

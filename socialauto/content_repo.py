@@ -74,7 +74,7 @@ def git(repo: Path, *args: str, check: bool = True, env: dict | None = None, tim
     e = dict(os.environ)
     e["GIT_TERMINAL_PROMPT"] = "0"
     e.update(env or {})
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=check,
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8", errors="replace", check=check,
                           timeout=timeout, env=e)
 
 

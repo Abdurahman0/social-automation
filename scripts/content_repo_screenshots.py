@@ -89,12 +89,12 @@ def his_bare(tmp: Path) -> Path:
         files[f"reels/{d}/cover.jpg"] = "c"
     for rel, text in files.items():
         (work / rel).parent.mkdir(parents=True, exist_ok=True)
-        (work / rel).write_text(text)
+        (work / rel).write_text(text, encoding="utf-8")
     git(work, "add", "-A")
     git(work, "-c", "user.name=eraliyev-j", "-c", "user.email=j@example.com", "commit", "-q", "-m", "Add 10.11 ichak tayoqchasi reel")
     for rel in ("reels/2026-11-12-kran-suvi/reel.mp4", "reels/2026-11-12-kran-suvi/cover.jpg", "reels/2026-11-12-kran-suvi/script.md"):
         (work / rel).parent.mkdir(parents=True, exist_ok=True)
-        (work / rel).write_text("x")
+        (work / rel).write_text("x", encoding="utf-8")
     git(work, "add", "-A")
     git(work, "-c", "user.name=eraliyev-j", "-c", "user.email=j@example.com", "commit", "-q", "-m", "Reel: Kran suvini ichsa bo'ladimi? (2026-11-12)")
     bare = tmp / "the-suvyektiv-media.git"
@@ -135,7 +135,7 @@ def run(out: Path) -> int:
     root = tmp / "proj"
     root.mkdir()
     shutil.copyfile(ROOT / ".gitignore", root / ".gitignore")
-    (root / ".env").write_text(f"DASHBOARD_PASSWORD={PASSWORD}\nTELEGRAM_BOT_TOKEN=\nTELEGRAM_ALLOWED_USER_IDS=\n")
+    (root / ".env").write_text(f"DASHBOARD_PASSWORD={PASSWORD}\nTELEGRAM_BOT_TOKEN=\nTELEGRAM_ALLOWED_USER_IDS=\n", encoding="utf-8")
     netcheck.online = lambda *a, **k: True
     bare = his_bare(tmp)
     base, settings = start_server(root, bare)
@@ -201,7 +201,7 @@ def run(out: Path) -> int:
                 shot("skills-content-repo")
                 ctx.close()
         browser.close()
-    (out / "content_repo_layout_check.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
+    (out / "content_repo_layout_check.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     shutil.rmtree(tmp, ignore_errors=True)
     bad = [k for k, v in report.items() if not v["ok"]]
     print(f"{len(report)} screenshots, layout problems: {bad or 'none'}")

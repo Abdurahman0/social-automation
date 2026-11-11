@@ -104,7 +104,7 @@ def run(url: str, root: Path, out: Path) -> int:
                 report[name] = check(page, errors)
                 ctx.close()
         browser.close()
-    (out / "setup_layout_check.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
+    (out / "setup_layout_check.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     bad = [k for k, v in report.items() if not v["ok"]]
     print(f"{len(report)} screenshots, layout problems: {bad or 'none'}")
     return 1 if bad else 0

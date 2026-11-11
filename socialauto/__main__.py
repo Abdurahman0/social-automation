@@ -152,6 +152,10 @@ def cmd_instagram_connect(settings) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from .utf8 import ensure_utf8_mode, setup_console
+    if argv is None:
+        ensure_utf8_mode()                          # Task 11: Windows with a cp949/cp1251 locale -> re-run in UTF-8 mode
+    setup_console()                                 # the console never crashes on 'ç', Korean, oʻ/gʻ or emoji
     parser = argparse.ArgumentParser(prog="python -m socialauto")
     sub = parser.add_subparsers(dest="cmd", required=True)
     for name in ("run", "web", "check", "youtube-auth", "instagram-connect", "refresh-analytics", "download-model"):

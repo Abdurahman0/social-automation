@@ -49,7 +49,7 @@ class Git:
         if args[0] not in SAFE_COMMANDS:
             raise ValueError(f"git {args[0]} is not a read-only command")
         try:
-            out = subprocess.run(["git", "-C", str(self.root), *args], capture_output=True, text=True, timeout=20,
+            out = subprocess.run(["git", "-C", str(self.root), *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
                                  check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
             log.warning("git %s failed: %s", args[0], exc)

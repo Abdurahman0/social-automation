@@ -10,13 +10,18 @@ Set-Location $Root
 $py = Join-Path $Root '.venv\Scripts\python.exe'
 $cmd = if ($Kind -eq 'bot') { 'run' } else { 'web' }
 $env:PYTHONUNBUFFERED = '1'
+# Task 11: Python in UTF-8 mode whatever the Windows locale (Korean cp949 crashed on 'c-cedilla'), and the log file
+# below receives UTF-8 text, not the console code page.
+$env:PYTHONUTF8 = '1'
+$env:PYTHONIOENCODING = 'utf-8'
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 $env:Path = (Join-Path $Root 'bin') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
 Remove-Item Env:ANTHROPIC_API_KEY, Env:ANTHROPIC_AUTH_TOKEN, Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path (Join-Path $Root 'logs') | Out-Null
 $log = Join-Path $Root "logs\windows-$Kind.log"
 
 while ($true) {
-    & $py -m socialauto $cmd *>> $log
+    & $py -X utf8 -m socialauto $cmd *>> $log
     $code = $LASTEXITCODE
     Start-Sleep -Seconds ($(if ($code -eq 75) { 1 } else { 5 }))
 }

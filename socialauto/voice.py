@@ -127,7 +127,7 @@ def clean(raw_wav: Path, out: Path, target_lufs: float = -14.0, compressor: bool
     base = f"{trim},{denoise}"
     measure = subprocess.run([ffmpeg.binary("ffmpeg"), "-hide_banner", "-i", str(raw_wav), "-af",
                               f"{base},loudnorm=I={target_lufs}:TP=-1.5:LRA=11:print_format=json", "-f", "null", "-"],
-                             capture_output=True, text=True, timeout=300)
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
     m = re.search(r"\{[^{}]*\"input_i\"[^{}]*\}", measure.stderr, re.S)
     if m:
         s = json.loads(m.group(0))

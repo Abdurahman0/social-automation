@@ -65,7 +65,7 @@ def save_token(path: Path, token_json: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     tmp = path.with_suffix(".tmp")
     tmp.touch(mode=0o600)
-    tmp.write_text(token_json)
+    tmp.write_text(token_json, encoding="utf-8")
     tmp.chmod(0o600)
     tmp.replace(path)
 

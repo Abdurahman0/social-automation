@@ -38,7 +38,7 @@ class Updater:
             raise ValueError("only fast-forward merges")
         env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
         # Anonymous: no credential helper, no prompt (the code repo is public; updates never need a login).
-        return subprocess.run(["git", "-c", "credential.helper=", "-C", str(self.root), *args], capture_output=True, text=True, timeout=timeout,
+        return subprocess.run(["git", "-c", "credential.helper=", "-C", str(self.root), *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
                               env=env, check=False)
 
     def fetch(self, force: bool = False) -> bool:

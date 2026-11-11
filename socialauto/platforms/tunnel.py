@@ -127,7 +127,7 @@ def public_files(files: list[Path], binary: str, start_timeout: float = 60.0) ->
     try:
         keys = [server.add(p) for p in files]
         proc = subprocess.Popen([binary, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{server.port}"],
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
         base, lines = None, []
         deadline = time.monotonic() + start_timeout
         while time.monotonic() < deadline and proc.poll() is None:

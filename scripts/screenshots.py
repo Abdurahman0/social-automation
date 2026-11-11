@@ -107,7 +107,7 @@ def seed_fixture(settings) -> None:
     for f in (settings.youtube.token_file, settings.instagram.token_file):
         p = settings.resolve(f)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text("{}")
+        p.write_text("{}", encoding="utf-8")
     titles = ["This bell has rung since 1840 on the same batteries", "Octopuses have three hearts — one stops when they swim",
               "Honey found in Egyptian tombs was still edible", "Why Venus spins the wrong way",
               "The shortest war in history lasted 38 minutes", "Bananas are berries but strawberries are not",
@@ -279,7 +279,7 @@ def main() -> int:
         troot = Path(tmp)
         for name in ("assets", "models"):
             (troot / name).symlink_to(ROOT / name)
-        (troot / "config.toml").write_text((ROOT / "config.toml").read_text())
+        (troot / "config.toml").write_text((ROOT / "config.toml").read_text(encoding="utf-8"), encoding="utf-8")
         s2 = replace(load_settings(troot / "config.toml", troot / "none.env", root=troot), dashboard_password=PASSWORD)
         seed_fixture(s2)
         fixed = lambda: datetime(2026, 11, 8, 12, tzinfo=timezone.utc)   # noqa: E731

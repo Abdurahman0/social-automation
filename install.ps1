@@ -20,6 +20,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Task 11: every Python started here (pip, download-model) runs in UTF-8 mode, whatever the Windows locale
+# (cp949 on Korean Windows crashed on non-Korean letters). The background tasks get the same in windows_service.ps1.
+$env:PYTHONUTF8 = '1'
+$env:PYTHONIOENCODING = 'utf-8'
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 $RepoUrl = if ($env:SA_REPO_URL) { $env:SA_REPO_URL } else { 'https://github.com/Abdurahman0/social-automation.git' }   # SA_REPO_URL: a mirror (tests)
 
 # --- bootstrap: started as `irm ... | iex` (no file on disk yet) -> get the code anonymously, then run the real
@@ -145,7 +150,7 @@ try {
 
     # ------------------------------------------------------------------------------------------- 4. model
     Step "4/8 O'zbekcha nutq modeli (~800 MB) / Uzbek speech model (~800 MB)"
-    & $venvPy -m socialauto download-model
+    & $venvPy -X utf8 -m socialauto download-model
     if ($LASTEXITCODE -ne 0) { Fail "Model yuklanmadi / the model was not downloaded." "Qayta ishga tushiring / run install.ps1 again." }
 
     # ------------------------------------------------------------------------------------------- 5. cloudflared
@@ -184,7 +189,7 @@ try {
     # ------------------------------------------------------------------------------------------- 8. tasks
     Step "8/8 Fon vazifalari / background tasks (Task Scheduler)"
     if ($NoService) {
-        Warn "-NoService: vazifalar ro'yxatdan o'tkazilmadi / tasks not registered. Qo'lda / by hand: .venv\Scripts\python.exe -m socialauto web  va/and  run"
+        Warn "-NoService: vazifalar ro'yxatdan o'tkazilmadi / tasks not registered. Qo'lda / by hand: .venv\Scripts\python.exe -X utf8 -m socialauto web  va/and  run"
     } else {
         $wrapper = Join-Path $Root 'scripts\windows_service.ps1'
         foreach ($kind in @('bot', 'web')) {

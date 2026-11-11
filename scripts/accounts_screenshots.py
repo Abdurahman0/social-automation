@@ -146,7 +146,7 @@ def run(out: Path) -> int:
     root.mkdir()
     shutil.copyfile(ROOT / ".gitignore", root / ".gitignore")
     (root / ".env").write_text(f"DASHBOARD_PASSWORD={PASSWORD}\nBUFFER_API_KEY=sinov-kalit\n"
-                               "TELEGRAM_BOT_TOKEN=\nTELEGRAM_ALLOWED_USER_IDS=\n")
+                               "TELEGRAM_BOT_TOKEN=\nTELEGRAM_ALLOWED_USER_IDS=\n", encoding="utf-8")
     netcheck.online = lambda *a, **k: ONLINE["value"]                     # the banner is driven by the test
     import socialauto.web.server as srv                                   # noqa: F401 (already imported online)
     base, settings = start_server(root)
@@ -212,7 +212,7 @@ def run(out: Path) -> int:
                 ONLINE["value"] = True
                 ctx.close()
         browser.close()
-    (out / "accounts_layout_check.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
+    (out / "accounts_layout_check.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     shutil.rmtree(tmp, ignore_errors=True)
     bad = [k for k, v in report.items() if not v["ok"]]
     print(f"{len(report)} screenshots, layout problems: {bad or 'none'}")

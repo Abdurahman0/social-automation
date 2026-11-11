@@ -65,6 +65,8 @@ class ClaudeAuthError(ClaudeError):
 def child_env(config_dir: Path) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k in _ENV_ALLOWLIST or k.startswith(_ENV_ALLOWED_PREFIXES)}
     env["CLAUDE_CONFIG_DIR"] = str(config_dir)
+    env["PYTHONUTF8"] = "1"               # Task 11: any Python helper the CLI starts speaks UTF-8, never cp949
+    env["PYTHONIOENCODING"] = "utf-8"
     return env
 
 
@@ -117,7 +119,7 @@ class ClaudeClient:
         """`claude auth status --json` (contains no credentials)."""
         try:
             result = subprocess.run([self.exe(), "auth", "status", "--json"], env=child_env(self.cfg.config_dir),
-                                    capture_output=True, text=True, timeout=60, check=False)
+                                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False)
         except OSError as exc:
             return {"loggedIn": False, "error": str(exc)}
         try:
@@ -154,7 +156,7 @@ class ClaudeClient:
             started = time.monotonic()
             try:
                 result = subprocess.run(cmd, input=prompt, cwd=self.workdir, env=child_env(self.cfg.config_dir),
-                                        capture_output=True, text=True, timeout=timeout, check=False)
+                                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, check=False)
             except subprocess.TimeoutExpired as exc:
                 raise ClaudeError(f"{task}: timed out after {timeout}s") from exc
             except OSError as exc:

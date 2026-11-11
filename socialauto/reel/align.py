@@ -64,7 +64,7 @@ def split_words(text: str) -> list[str]:
 def pauses(wav: Path, noise_db: int = -35, min_silence: float = 0.35) -> list[tuple[float, float]]:
     out = subprocess.run([ffmpeg.binary("ffmpeg"), "-hide_banner", "-nostats", "-i", str(wav), "-af",
                           f"silencedetect=noise={noise_db}dB:d={min_silence}", "-f", "null", "-"],
-                         capture_output=True, text=True, timeout=300).stderr
+                         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300).stderr
     starts = [float(x) for x in re.findall(r"silence_start: (-?[\d.]+)", out)]
     ends = [float(x) for x in re.findall(r"silence_end: (-?[\d.]+)", out)]
     return list(zip(starts, ends))

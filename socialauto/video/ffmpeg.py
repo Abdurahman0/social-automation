@@ -27,7 +27,7 @@ def binary(name: str) -> str:
 
 def run(args: list[str], timeout: int = 1800) -> subprocess.CompletedProcess:
     try:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False)
+        result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
         raise FFmpegError(f"{Path(args[0]).name} timed out after {timeout}s") from exc
     if result.returncode != 0:
@@ -162,12 +162,12 @@ def validate(path: Path, *, width: int, height: int, min_seconds: float, max_sec
         problems.append(f"duration {duration:.1f}s outside {min_seconds:g}-{max_seconds:g}s")
     # Full decode catches truncated or corrupt files; volumedetect catches silent audio.
     decode = subprocess.run([binary("ffmpeg"), "-v", "error", "-i", str(path), "-af", "volumedetect",
-                             "-f", "null", "-"], capture_output=True, text=True, timeout=600)
+                             "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
     errors = [l for l in decode.stderr.splitlines() if "volumedetect" not in l and "Parsed_" not in l and l.strip()]
     if decode.returncode != 0 or errors:
         problems.append(f"decode errors: {' | '.join(errors)[:300]}")
     stats = subprocess.run([binary("ffmpeg"), "-hide_banner", "-i", str(path), "-af", "volumedetect", "-vn",
-                            "-f", "null", "-"], capture_output=True, text=True, timeout=600).stderr
+                            "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600).stderr
     m = re.search(r"mean_volume: (-?[\d.]+) dB", stats)
     mean_db = float(m.group(1)) if m else -99.0
     if mean_db < -45:
@@ -197,7 +197,7 @@ def make_preview(src: Path, out: Path, max_bytes: int, width: int = 720, height:
 def loudness(path: Path) -> dict:
     """Integrated loudness (LUFS) and true peak (dBTP) of a file's audio (EBU R128)."""
     out = subprocess.run([binary("ffmpeg"), "-hide_banner", "-nostats", "-i", str(path), "-vn", "-af",
-                          "ebur128=peak=true", "-f", "null", "-"], capture_output=True, text=True, timeout=600).stderr
+                          "ebur128=peak=true", "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600).stderr
     summary = out[out.rfind("Summary:"):] if "Summary:" in out else out
     i = re.search(r"I:\s+(-?[\d.]+) LUFS", summary)
     tp = re.search(r"Peak:\s+(-?[\d.]+|-inf) dBFS", summary)
@@ -209,7 +209,7 @@ def black_segments(path: Path, min_seconds: float = 0.3) -> list[tuple[float, fl
     """Intervals of (almost) black frames."""
     out = subprocess.run([binary("ffmpeg"), "-hide_banner", "-nostats", "-i", str(path), "-an", "-vf",
                           f"blackdetect=d={min_seconds}:pic_th=0.97:pix_th=0.08", "-f", "null", "-"],
-                         capture_output=True, text=True, timeout=900).stderr
+                         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900).stderr
     return [(float(a), float(b)) for a, b in re.findall(r"black_start:(-?[\d.]+) black_end:(-?[\d.]+)", out)]
 
 

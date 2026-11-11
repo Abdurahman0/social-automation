@@ -50,9 +50,9 @@ def _secret(settings: Settings) -> bytes:
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch(mode=0o600)
-        path.write_text(secrets.token_hex(32))
+        path.write_text(secrets.token_hex(32), encoding="utf-8")
         path.chmod(0o600)
-    return path.read_text().strip().encode()
+    return path.read_text(encoding="utf-8").strip().encode()
 
 
 def make_token(secret: bytes, password: str, now: float | None = None) -> str:

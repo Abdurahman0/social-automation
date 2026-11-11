@@ -67,12 +67,12 @@ class Places:
         marker = self.work(base) / ".last_version"
         if marker.exists():
             try:
-                used.append(int(marker.read_text().strip()))
+                used.append(int(marker.read_text(encoding="utf-8").strip()))
             except ValueError:
                 pass
         n = max(used, default=0) + 1
         marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(str(n))
+        marker.write_text(str(n), encoding="utf-8")
         return n, self.exports / f"{base}_v{n}.mp4"
 
 

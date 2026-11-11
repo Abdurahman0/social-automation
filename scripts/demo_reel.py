@@ -50,14 +50,14 @@ def prepare() -> Path:
     for name in ("assets", "models", "bin", "remotion"):
         (DEMO / name).symlink_to(ROOT / name)
     (DEMO / "docs").mkdir()
-    cfg = (ROOT / "config.toml").read_text()
+    cfg = (ROOT / "config.toml").read_text(encoding="utf-8")
     cfg = cfg.replace('work_base = "~/MediaBuffer/_work"', f'work_base = "{DEMO}/MediaBuffer/_work"')
     cfg = cfg.replace('exports = "~/MediaBuffer/exports"', f'exports = "{DEMO}/MediaBuffer/exports"')
     cfg = cfg.replace('research_dir = "~/MediaBuffer/_work/research"', f'research_dir = "{DEMO}/MediaBuffer/_work/research"')
-    (DEMO / "config.toml").write_text(cfg)
+    (DEMO / "config.toml").write_text(cfg, encoding="utf-8")
     for args in (["init", "-q", "-b", "main"], ["config", "user.email", "demo@localhost"], ["config", "user.name", "Demo"]):
         subprocess.run(["git", "-C", str(DEMO), *args], check=True)
-    (DEMO / ".gitignore").write_text("/data/\n/logs/\n/assets\n/models\n/bin\n/remotion\n/MediaBuffer/\n")
+    (DEMO / ".gitignore").write_text("/data/\n/logs/\n/assets\n/models\n/bin\n/remotion\n/MediaBuffer/\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(DEMO), "add", ".gitignore", "config.toml"], check=True)
     subprocess.run(["git", "-C", str(DEMO), "commit", "-qm", "demo repo"], check=True)
     return DEMO
@@ -204,11 +204,11 @@ def main() -> int:
     shutil.copytree(work / f"frames_v{reel['version']}", fdir)
     shutil.copy(settings.dryrun_posts_path, PROOF / "dryrun_posts.json")
     shutil.copy(root / "docs" / "reel-mistakes-checklist.md", PROOF / "reel-mistakes-checklist.md")
-    git_log = subprocess.run(["git", "-C", str(root), "show", "--stat", "--format=%s", "HEAD"], capture_output=True, text=True).stdout
+    git_log = subprocess.run(["git", "-C", str(root), "show", "--stat", "--format=%s", "HEAD"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     (PROOF / "git_commit.txt").write_text(git_log, encoding="utf-8")
     (PROOF / "voice_alignment.json").write_text(json.dumps({"stt": app.workflow.transcriber.__class__.__name__,
                                                             "transcript": voice["transcript"], "coverage": voice["coverage"],
-                                                            "duration": voice["duration"]}, indent=1, ensure_ascii=False))
+                                                            "duration": voice["duration"]}, indent=1, ensure_ascii=False), encoding="utf-8")
     common.write_transcript(rec, PROOF / "telegram_messages.md")
     common.write_chat_html(rec, PROOF / "telegram_chat.html")
     (PROOF / "demo_log.txt").write_text("\n".join(log) + "\n", encoding="utf-8")
