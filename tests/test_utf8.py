@@ -222,6 +222,42 @@ def test_claude_client_sends_and_reads_utf8_under_cp949(monkeypatch, tmp_path, f
     assert data["env"] == {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
 
 
+FAKE_CLAUDE_ARGV = r'''#!{python}
+import json, os, sys
+sys.stdin.buffer.read()
+argv = sys.argv[1:]
+path = argv[argv.index("--system-prompt-file") + 1]
+with open(path, "rb") as f:
+    system = f.read().decode("utf-8")
+reply = {{"type": "result", "subtype": "success", "is_error": False,
+          "structured_output": {{"argv_chars": sum(len(a) + 1 for a in sys.argv), "system": system,
+                                 "inline": "--system-prompt" in argv}}, "result": ""}}
+sys.stdout.buffer.write(json.dumps(reply, ensure_ascii=False).encode("utf-8"))
+'''
+
+
+def test_long_system_prompt_never_goes_on_the_command_line(tmp_path):
+    """«The command line is too long» on Windows: the brand rules made the system prompt longer than cmd.exe allows
+    (8191 characters). The system prompt now travels in a UTF-8 file, so the command line stays short."""
+    import socialauto.claude_client as cc
+    from socialauto.config import ClaudeConfig
+    exe = tmp_path / "bin" / "claude"
+    exe.parent.mkdir()
+    exe.write_text(FAKE_CLAUDE_ARGV.format(python=sys.executable), encoding="utf-8")
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    cfg = ClaudeConfig(binary=str(exe), config_dir=tmp_path / "claude-home", effort="", timeout_seconds=60,
+                       min_interval_seconds=0)
+    work = tmp_path / "work"
+    client = cc.ClaudeClient(cfg, work)
+    system = ("Brend qoidalari: " + NASTY + "\n") * 2000
+    schema = {"type": "object", "properties": {"argv_chars": {"type": "integer"}}}
+    data = client.generate_json("research-topics", "mavzu", schema, system_prompt=system)
+    assert data["system"] == system
+    assert data["inline"] is False
+    assert data["argv_chars"] < 8191
+    assert list(work.iterdir()) == []
+
+
 def test_child_env_forces_utf8(tmp_path, monkeypatch):
     from socialauto.claude_client import child_env
     monkeypatch.setenv("PYTHONIOENCODING", "cp949")

@@ -8,6 +8,8 @@ Claude runs through the Claude Code subscription login of account 1 (the default
 - runs in an empty sandbox directory with every built-in tool disabled except, when asked, WebSearch/WebFetch
   (fact checking for the "surprising facts" niche). The child gets only an allowlist of environment variables,
   so this project's secrets (bot token, OAuth files) are unreachable from a Claude call;
+- passes the system prompt through a UTF-8 file (`--system-prompt-file`), never on the command line: the brand
+  rules made it longer than Windows allows ("The command line is too long", cmd.exe stops at 8191 characters);
 - is recorded in the usage ledger (claude_budget); a usage-limit message pauses Claude work until the reset time
   the CLI printed.
 """
@@ -20,6 +22,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -138,7 +141,6 @@ class ClaudeClient:
             "--print",
             "--output-format", "json",
             "--json-schema", json.dumps(schema),
-            "--system-prompt", system_prompt,
             "--permission-mode", "dontAsk",
             "--tools", ",".join(tools),
             *(["--allowedTools", ",".join(tools)] if tools else []),
@@ -154,8 +156,12 @@ class ClaudeClient:
             if wait > 0:
                 time.sleep(wait)
             started = time.monotonic()
+            fd, sp_name = tempfile.mkstemp(prefix=".system-", suffix=".txt", dir=self.workdir)
+            sp_file = Path(sp_name)
             try:
-                result = subprocess.run(cmd, input=prompt, cwd=self.workdir, env=child_env(self.cfg.config_dir),
+                with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+                    fh.write(system_prompt)
+                result = subprocess.run(cmd + ["--system-prompt-file", str(sp_file)], input=prompt, cwd=self.workdir, env=child_env(self.cfg.config_dir),
                                         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, check=False)
             except subprocess.TimeoutExpired as exc:
                 raise ClaudeError(f"{task}: timed out after {timeout}s") from exc
@@ -163,6 +169,7 @@ class ClaudeClient:
                 raise ClaudeError(f"{task}: could not start Claude Code: {exc}") from exc
             finally:
                 self._last_call = time.monotonic()
+                sp_file.unlink(missing_ok=True)
         seconds = time.monotonic() - started
         log.info("Claude call %s finished in %.0fs (exit %s)", task, seconds, result.returncode)
         try:
