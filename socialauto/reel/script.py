@@ -76,8 +76,17 @@ def window() -> tuple[int, int]:
     return value
 
 
+NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
+
+
 def words(text: str) -> list[str]:
-    return re.findall(r"[\wʼ'‘’`]+", text)
+    """Spoken words; a number like "27,7" or "1.5" stays ONE word (it was split into "27" + "7", so a decimal
+    key fact was never found in the first 5 seconds and every such script failed)."""
+    return re.findall(r"\d+(?:[.,]\d+)*|[\wʼ'‘’`]+", text)
+
+
+def first_words_limit(wps: float = WORDS_PER_SECOND) -> int:
+    return int(FIRST_SECONDS * wps)
 
 
 def full_text(script: dict) -> str:
@@ -110,16 +119,16 @@ def problems(script: dict, wps: float = WORDS_PER_SECOND, min_s: float | None = 
         out.append(f"spoken length about {secs:.0f}s; it must be {min_s}-{max_s}s "
                    f"({int(min_s * wps)}-{int(max_s * wps)} words)")
     key = str(script.get("key_fact", "")).strip()
-    first = _norm(" ".join(words(full_text(script))[: int(FIRST_SECONDS * wps)]))
+    first = _norm(" ".join(words(full_text(script))[: first_words_limit(wps)]))
     if not key:
         out.append("key_fact (the answer / strongest number) is missing")
     else:
-        numbers = [n.replace(",", ".") for n in re.findall(r"\d+(?:[.,]\d+)?", key)]
-        first_numbers = {n.replace(",", ".") for n in re.findall(r"\d+(?:[.,]\d+)?", first)}
+        numbers = [n.replace(",", ".") for n in NUMBER.findall(key)]
+        first_numbers = {n.replace(",", ".") for n in NUMBER.findall(first)}
         heard = any(n in first_numbers for n in numbers) if numbers else _norm(" ".join(words(key)[:3])) in first
         if not heard:
             out.append(f"the strongest fact ({key}) must be heard in the first {FIRST_SECONDS} seconds "
-                       f"(the first {int(FIRST_SECONDS * wps)} words)")
+                       f"(the first {first_words_limit(wps)} words)")
     text = full_text(script)
     for term in script.get("terms") or []:
         m = re.search(re.escape(_norm(term)), _norm(text))

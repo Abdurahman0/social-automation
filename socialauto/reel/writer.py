@@ -48,8 +48,11 @@ def script_prompt(topic: dict, insight: str, wps: float) -> str:
             "open loops (a question or a promise that keeps people watching).\n"
             f"- {script_mod.window()[0]}-{script_mod.window()[1]} seconds spoken: {int(script_mod.window()[0] * wps)}-"
             f"{int(script_mod.window()[1] * wps)} words in total.\n"
-            "- The answer or the strongest number is said in the FIRST sentence (first 5 seconds), written in DIGITS. key_fact = that number "
-            "exactly as written in the hook.\n"
+            f"- The answer or the strongest number is said in the FIRST sentence, within the first "
+            f"{script_mod.first_words_limit(wps)} words of the hook (about 5 seconds), written in DIGITS (e.g. \"27,7 foiz\", "
+            "not \"yigirma yetti\"). Put the number early: start with it or put it in the first 3-6 words; no greeting or "
+            "warm-up before it. key_fact = only that number and its unit (e.g. \"27,7 foiz\"), copied exactly as written in "
+            "the hook.\n"
             "- After every technical term add a plain explanation starting with \"ya'ni\" (the double tap). List those "
             "terms in `terms`.\n"
             "- broll: 2-5 English words to find REAL footage or photos (water, pipes, treatment plant, river, city...). "
@@ -105,10 +108,13 @@ class ReelWriter:
         if not found:
             return draft
         ids = safe_record(self.lessons, "script", found)
+        first = " ".join(script_mod.words(script_mod.full_text(draft))[: script_mod.first_words_limit(self.wps)])
         fixed = self.claude.generate_json(f"{task}-fix", prompt + "\n\nYour previous draft broke these rules; fix them "
                                           "and keep everything else:\n" + "\n".join(f"- {p}" for p in found) +
-                                          "\n(For the first-5-seconds rule: write the key number in DIGITS inside the first sentence, e.g. \"1,7 million\", "
-                                          "and copy exactly that into key_fact.)\nPrevious draft parts:\n" + "\n".join(f"{p['part']}: {p['text']}" for p in draft["parts"]),
+                                          f"\n(For the first-5-seconds rule: the key number must be in DIGITS among the first "
+                                          f"{script_mod.first_words_limit(self.wps)} words, e.g. \"1,7 million\", and key_fact must be exactly "
+                                          f"that number with its unit. Your draft's first {script_mod.first_words_limit(self.wps)} words were: "
+                                          f"\"{first}\"; key_fact was \"{draft.get('key_fact', '')}\".)\nPrevious draft parts:\n" + "\n".join(f"{p['part']}: {p['text']}" for p in draft["parts"]),
                                           script_mod.SCHEMA, self._system())
         again = script_mod.problems(fixed, self.wps)
         if again:

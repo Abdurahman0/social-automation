@@ -423,3 +423,14 @@ def test_broll_prefers_on_topic_clips():
     off = Candidate("video", "u2", "Wikimedia Commons", "Food demo sweet potato", "A", "CC BY 4.0", "s", 1080, 1920, 10)
     assert relevance(on, "water pipe repair") == 1.0 and relevance(off, "water pipe repair") == 0.0
     assert score(on, "water pipe repair") > score(off, "water pipe repair")
+
+
+def test_decimal_key_fact_in_the_hook_is_heard():
+    """27,7 / 1,7 / 1.5 stay one word: a decimal key fact in the hook used to fail the first-5-seconds rule twice."""
+    for key, hook in (("27,7 foiz", "Chirchiq oqova suvi atigi 27,7 foiz tozalangan, qolgani esa daryoga ketadi."),
+                      ("1,7 million", "Har yili 1,7 million kub metr suv quvurlarda yo'qoladi, hech kim sezmaydi."),
+                      ("1.5", "Bir oilaga kuniga 1.5 kub suv kerak, lekin hammasiga ham yetmaydi.")):
+        s = json.loads(json.dumps(uz_script()))
+        s["key_fact"], s["parts"][0]["text"] = key, hook
+        assert not any("first 5 seconds" in p for p in rs.problems(s)), (key, rs.problems(s))
+    assert rs.words("atigi 27,7 foiz") == ["atigi", "27,7", "foiz"]
