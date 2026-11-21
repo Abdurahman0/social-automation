@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from ..db import now_iso
-from ..store import (BUFFER_PENDING, COVER_WAITING, DONE, DRAFTING, PUBLISHING, RENDERING, RESEARCHING, REVISING,
+from ..store import (AROLL_PENDING, BUFFER_PENDING, COVER_WAITING, DONE, DRAFTING, PUBLISHING, RENDERING, RESEARCHING, REVISING,
                      SCRIPT_PENDING, STORY_PENDING, TOPIC_PENDING, VIDEO_PENDING, VOICE_CHECK, VOICE_PROCESSING,
                      VOICE_WAITING)
 
@@ -19,7 +19,7 @@ STATUS_STAGE = {
     RESEARCHING: ("research", "Bot"), TOPIC_PENDING: ("research", "Siz"),
     DRAFTING: ("script", "Bot"), REVISING: ("script", "Bot"), SCRIPT_PENDING: ("script", "Siz"),
     VOICE_WAITING: ("script", "Siz"), VOICE_CHECK: ("script", "Siz"), VOICE_PROCESSING: ("edit", "Bot"),
-    RENDERING: ("edit", "Bot"), VIDEO_PENDING: ("edit", "Siz"),
+    AROLL_PENDING: ("edit", "Siz"), RENDERING: ("edit", "Bot"), VIDEO_PENDING: ("edit", "Siz"),
     COVER_WAITING: ("publish", "Siz"), PUBLISHING: ("publish", "Bot"), BUFFER_PENDING: ("publish", "Bot"),
     STORY_PENDING: ("live", "Siz"), DONE: ("live", "Bot"),
 }

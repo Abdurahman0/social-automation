@@ -42,7 +42,7 @@ log = logging.getLogger(__name__)
 MAX_CHUNK = 3900
 CAPTION_MAX = 1024
 SENT_KINDS = {"script_approval", "voice_request", "voice_reminder", "voice_check", "voice_unusable", "video_approval",
-              "owner_action", "limit", "topic_choice", "cover_request", "buffer_ready", "story_ready", "error"}
+              "owner_action", "limit", "topic_choice", "cover_request", "buffer_ready", "story_ready", "error", "aroll_choice"}
 AWAIT_EDIT = "await_edit:{}"
 AWAIT_REJECT = "await_reject:{}"
 AWAIT_IDEA = "await_idea:{}"
@@ -53,6 +53,9 @@ VOICE_FIX_RE = re.compile(r"^vf:(\d+):(\d+)$")
 TOPIC_RE = re.compile(r"^t:(\d+|m):([0-9a-f]{10})$")
 STORY_RE = re.compile(r"^st:(\d+)$")
 ERROR_RE = re.compile(r"^er:([ro]):(\d+)$")                  # «Qayta urinish» / «Boshqa mavzu» under an error
+AROLL_RE = re.compile(r"^ar:([tdn]):(\d+):([0-9a-f]{10})$")    # tick a part / «Tayyor» / «Hammasi B-roll»
+AROLL_SKIP_RE = re.compile(r"^ar:s:(\d+)$")                     # «Bu qismga B-roll qo'y» while a clip is asked
+VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".3gp")
 NEW_AUTO = "nw:auto"
 PLATFORM_UZ = {"youtube": "YouTube", "instagram": "Instagram"}
 
@@ -61,7 +64,8 @@ HELP = """🎬 Social Automation — suv va oqova suv haqida reels
 Siz qiladigan ishlar (har biri bitta xabar va tugmalar bilan keladi):
 1) 🔎 Mavzuni tanlaysiz — bot tadqiqot qilib, 3–5 ta mavzu taklif qiladi.
 2) 📝 Ssenariyni tahrirlaysiz yoki tasdiqlaysiz (8 qism, o'zbekcha).
-3) 🎙 Matnni o'qib, ovozni yuborasiz.
+3) 🎙 Matnni o'qib, ovozni yuborasiz. Bot ovozni 8 qismga bo'lib, qaysi qismlarga o'zingiz suratga olgan
+   videoni (A-roll) qo'yishni so'raydi — belgilaysiz va videolarni navbat bilan yuborasiz (qolganiga B-roll).
 4) 🎬 Videoni ko'rasiz: tuzatish (matn yoki ovozli xabar) yoki ✅ tasdiqlash.
 5) 🖼 Muqovani o'zingiz tayyorlab yuborasiz (bot muqova qilmaydi) → bot GitHub'ga saqlaydi va Buffer navbatiga qo'shadi.
    👉 Buffer uni o'z jadvali bo'yicha, navbatdagi bo'sh vaqtda o'zi joylaydi.
@@ -249,6 +253,37 @@ def voice_request_message(script: dict, cfg, tips_from_lessons: list[str], remin
     return "\n".join(lines)
 
 
+def aroll_message(title: str, script: dict, state: dict) -> str:
+    """After the voice is split into the 8 parts: which parts get the owner's own video (A-roll)?"""
+    texts = {pt["part"]: pt.get("text", "") for pt in script["parts"]}
+    lines = [f"🎬 <b>O'z videongiz (A-roll)</b>: «{e(title)}»",
+             "Ovozingiz 8 qismga bo'lindi. Qaysi qismlarga o'zingiz suratga olgan videoni qo'ymoqchisiz? "
+             "Belgilanmagan qismlarga bot litsenziyali B-roll qo'yadi.", ""]
+    for k, sp in enumerate(state["spans"]):
+        words = texts.get(sp["part"], "").split()
+        snippet = " ".join(words[:12]) + ("…" if len(words) > 12 else "")
+        lines.append(f"<b>{k + 1}. {e(rs.PART_UZ.get(sp['part'], sp['part']))}</b> · {sp['start']:.1f}–{sp['end']:.1f} s "
+                     f"({sp['end'] - sp['start']:.1f} s)\n<i>{e(snippet)}</i>")
+    lines += ["", "Qismlarni belgilang, keyin «▶️ Tayyor» ni bosing — bot har bir qism uchun videoni navbat bilan "
+                  "so'raydi."]
+    return "\n".join(lines)
+
+
+def aroll_keyboard(state: dict, token: str) -> InlineKeyboardMarkup:
+    chosen = set(state.get("chosen") or [])
+    buttons = [InlineKeyboardButton(f"{'✅' if sp['part'] in chosen else '⬜'} {k + 1}. "
+                                    f"{rs.PART_UZ.get(sp['part'], sp['part'])}", callback_data=f"ar:t:{k}:{token}")
+               for k, sp in enumerate(state["spans"])]
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    rows.append([InlineKeyboardButton(f"▶️ Tayyor ({len(chosen)} ta qism)", callback_data=f"ar:d:0:{token}")])
+    rows.append([InlineKeyboardButton("🎞 Hammasi B-roll", callback_data=f"ar:n:0:{token}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def aroll_skip_keyboard(video_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🎞 Bu qismga B-roll qo'y", callback_data=f"ar:s:{video_id}")]])
+
+
 def voice_check_message(title: str, problems: list[str]) -> str:
     reasons = []
     for p in problems:
@@ -263,6 +298,12 @@ def voice_check_message(title: str, problems: list[str]) -> str:
             reasons.append("yozuv juda qisqa")
     return (f"🎙 «{e(title)}» uchun ovoz keldi, lekin " + "; ".join(reasons or ["matndan ancha farq qiladi"]) + ".\n"
             "Shu holicha davom etaymi yoki qayta yozib yuborasizmi?")
+
+
+def is_video_upload(kind: str, mime: str, filename: str) -> bool:
+    if kind in ("video", "video_note"):
+        return True
+    return kind == "document" and (mime.startswith("video/") or Path(filename).suffix.lower() in VIDEO_EXTENSIONS)
 
 
 def voice_check_keyboard(token: str) -> InlineKeyboardMarkup:
@@ -542,6 +583,14 @@ class TelegramBot:
                         + (f"«{e(video['title'])}» uchun " if not p.get("new_video") else "")
                         + "iltimos, qayta yozib yuboring.")
             await self.bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
+        elif kind == "aroll_choice":
+            approval = store.approval(p["approval"])
+            state = self.app.workflow.aroll_state(p["video_id"])
+            if not approval or approval["status"] != "pending" or not state:
+                return
+            video = store.video(p["video_id"])
+            await self._send_long(chat_id, aroll_message(video["title"], store.script(video["id"]), state),
+                                  aroll_keyboard(state, p["approval"]))
         elif kind == "video_approval":
             await self._send_video_approval(chat_id, p)
         elif kind == "error":                            # Task 10: plain-Uzbek error, maybe with «Qayta urinish»
@@ -580,6 +629,21 @@ class TelegramBot:
     @authorized
     async def on_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
+        m = AROLL_RE.match(query.data or "")
+        if m and m.group(1) == "t":                     # ticking a part: the same message, new buttons
+            res = await asyncio.to_thread(self.app.workflow.aroll_toggle, m.group(3), int(m.group(2)))
+            if not res.ok:
+                await query.answer(res.message[:190], show_alert=True)
+                return
+            await query.answer(res.message[:190])
+            approval = self.app.store.approval(m.group(3))
+            state = self.app.workflow.aroll_state(approval["video_id"]) if approval else None
+            if state:
+                try:
+                    await query.edit_message_reply_markup(reply_markup=aroll_keyboard(state, m.group(3)))
+                except TelegramError:
+                    pass
+            return
         ok, reply = await self.handle_button(update.effective_user.id, query.data or "")
         if not ok:
             await query.answer(reply[:190], show_alert=True)
@@ -590,7 +654,8 @@ class TelegramBot:
         except TelegramError:
             pass
         if reply:
-            await query.message.reply_text(reply)
+            markup = self._aroll_markup() if (query.data or "").startswith("ar:") else None
+            await query.message.reply_text(reply, reply_markup=markup)
         await self.deliver_outbox()
 
     async def handle_button(self, user_id: int, data: str) -> tuple[bool, str]:
@@ -628,6 +693,18 @@ class TelegramBot:
                     return True, res.message + "\n💬 Nima yoqmadi? Bir og'iz yozsangiz, bot eslab qoladi (ixtiyoriy)."
                 return res.ok, res.message
             res = await asyncio.to_thread(wf.voice_check_decision, token, "continue" if action == "k" else "redo")
+            return res.ok, res.message
+        m = AROLL_RE.match(data)
+        if m:
+            action, index, token = m.groups()
+            if action == "t":
+                res = await asyncio.to_thread(wf.aroll_toggle, token, int(index))
+            else:
+                res = await asyncio.to_thread(wf.aroll_decision, token, action == "d")
+            return res.ok, res.message
+        m = AROLL_SKIP_RE.match(data)
+        if m:
+            res = await asyncio.to_thread(wf.aroll_skip, int(m.group(1)))
             return res.ok, res.message
         m = TOPIC_RE.match(data)
         if m:
@@ -694,11 +771,37 @@ class TelegramBot:
             tg_file = await context.bot.get_file(obj.file_id)
             await tg_file.download_to_drive(custom_path=str(dest))
 
+        filename = getattr(obj, "file_name", "") or ""
+        if is_video_upload(kind, getattr(obj, "mime_type", "") or "", filename) and self.app.workflow.aroll_waiting():
+            reply = await self.handle_aroll(obj.file_size, filename, download)
+            await msg.reply_text(reply, reply_markup=self._aroll_markup())
+            await self.deliver_outbox()
+            return
+
         reply, markup = await self.handle_upload(kind, obj.file_size, getattr(obj, "mime_type", "") or "",
                                                  getattr(obj, "file_name", "") or "", download,
                                                  user_id=update.effective_user.id)
         await msg.reply_text(reply, reply_markup=markup)
         await self.deliver_outbox()
+
+    def _aroll_markup(self) -> InlineKeyboardMarkup | None:
+        """«Bu qismga B-roll qo'y» under a message that asks for the next A-roll clip."""
+        video = self.app.workflow.aroll_waiting()
+        return aroll_skip_keyboard(video["id"]) if video else None
+
+    async def handle_aroll(self, size: int | None, filename: str, download) -> str:
+        """The owner's own clip (A-roll) for the part the bot asked about."""
+        max_mb = self.app.settings.voice.max_download_mb
+        if size is not None and size > max_mb * 1_000_000:
+            return (f"📦 Video {size / 1e6:.0f} MB — Telegram botlar {max_mb} MB gacha faylni yuklab oladi. "
+                    "Videoni qisqartirib yoki siqib qayta yuboring, yoki «🎞 Bu qismga B-roll qo'y» ni bosing.")
+        suffix = Path(filename).suffix.lower() if filename else ""
+        suffix = suffix if suffix in VIDEO_EXTENSIONS else ".mp4"
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / f"aroll{suffix}"
+            await download(dest)
+            res = await asyncio.to_thread(self.app.workflow.receive_aroll, dest, suffix)
+        return res.message if res.ok else f"⚠️ {res.message}"
 
     async def handle_cover(self, download) -> str:
         with tempfile.TemporaryDirectory() as tmp:

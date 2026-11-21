@@ -41,9 +41,10 @@ from .reel import checklist, naming, publish, research as research_mod, script a
 from .reel.align import align, subtitle_lines
 from .reel.buffer import BufferAuthError, BufferRateLimit, metric_summary, top_posts
 from .reel.layout import default_layout
-from .reel.render import ReelRenderer
+from .reel.render import TAIL, ReelRenderer
+from .reel.script import PART_UZ
 from .reel.state import Reels
-from .store import (ACCEPTS_NEW_VOICE, ACTIVE, BUFFER_PENDING, COVER_WAITING, DONE, DRAFTING, FAILED, PUBLISHING,
+from .store import (ACCEPTS_NEW_VOICE, ACTIVE, AROLL_PENDING, BUFFER_PENDING, COVER_WAITING, DONE, DRAFTING, FAILED, PUBLISHING,
                     REJECTED, RENDERING, RESEARCHING, REVISING, SCRIPT_PENDING, STORY_PENDING, TOPIC_PENDING,
                     VIDEO_PENDING, VOICE_CHECK, VOICE_PROCESSING, VOICE_WAITING, WAITS_FOR_VOICE, ApprovalError, Store)
 
@@ -56,6 +57,9 @@ CLAUDE_JOBS = ("research", "propose", "regenerate", "rewrite", "plan_from_voice"
 JOB_STATUS = {"research": RESEARCHING, "propose": DRAFTING, "plan_from_voice": DRAFTING, "regenerate": REVISING,
               "rewrite": REVISING, "process_voice": VOICE_PROCESSING, "render": RENDERING, "reel_fix": RENDERING,
               "reel_publish": PUBLISHING}
+AROLL_KEY = "aroll:{}"                    # the owner's A-roll choice for one video (KV): spans, chosen, queue
+OWNER_PROVIDER = "Siz (A-roll)"           # a clip the owner sent himself: never replaced by stock footage
+VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".3gp")
 NEW_JOBS = {RESEARCHING: ("research",), DRAFTING: ("propose", "plan_from_voice")}
 
 
@@ -141,8 +145,9 @@ class Workflow:
         if action == "approve":
             voice = self.store.voice(video["voice_id"]) if video["voice_id"] else None
             if voice and voice["status"] == "accepted":           # made from the owner's own recording
-                self.store.set_status(video_id, RENDERING)
-                self._enqueue_render(video_id, voice["id"])
+                if self._after_voice(video_id, voice["id"]):
+                    return Result(True, "✅ Tasdiqlandi. Ovozingiz bor — endi o'z videongiz (A-roll) qaysi "
+                                        "qismlarga qo'yilishini so'rayman.")
                 return Result(True, "✅ Tasdiqlandi. Ovozingiz bor — video tayyorlanmoqda.")
             self.store.set_status(video_id, VOICE_WAITING, reminded_at=None)
             self.outbox.add("voice_request", video_id=video_id)
@@ -181,7 +186,8 @@ class Workflow:
             return Result(False, "Bu video endi ovoz qabul qilmaydi (allaqachon tasdiqlangan yoki yopilgan).")
         self.store.update_voice(voice_id, video_id=video_id, status="received")
         self.store.supersede_voices(video_id, keep=voice_id)          # the newest voice wins
-        self.store.supersede_approvals(video_id, ("video", "voice_check"))
+        self.store.supersede_approvals(video_id, ("video", "voice_check", "aroll"))
+        self.kv.delete(AROLL_KEY.format(video_id))
         self.jobs.cancel_for_video(video_id, "a newer voice arrived", ("render", "process_voice"))
         self.store.set_status(video_id, VOICE_PROCESSING, voice_id=voice_id)
         self.jobs.enqueue("process_voice", {"video_id": video_id, "voice_id": voice_id},
@@ -198,8 +204,182 @@ class Workflow:
 
     def _accept_voice(self, video_id: int, voice_id: int) -> None:
         self.store.update_voice(voice_id, status="accepted")
+        self._after_voice(video_id, voice_id)
+
+    def _after_voice(self, video_id: int, voice_id: int) -> bool:
+        """The voice is split into the 8 parts: ask the owner for his own clips (A-roll), else render now.
+        True = the owner was asked (the video waits in AROLL_PENDING)."""
+        if self.cfg.ask_aroll and self._ask_aroll(video_id, voice_id):
+            return True
         self.store.set_status(video_id, RENDERING)
         self._enqueue_render(video_id, voice_id)
+        return False
+
+    # ------------------------------------------------------------------ 3a. the owner's own video (A-roll)
+    def _ask_aroll(self, video_id: int, voice_id: int) -> bool:
+        script = self.store.script(video_id)
+        reel = self.reels.get(video_id)
+        try:
+            _, words, duration = self._voice_words(self.store.voice(voice_id))
+            al = align([pt["text"] for pt in script["parts"]], words, duration)
+        except Exception as exc:                    # noqa: BLE001 - never block the reel on the question itself
+            log.warning("A-roll question skipped for video %s: %s", video_id, exc)
+            return False
+        total = duration + TAIL
+        starts = list(al.part_starts)
+        spans = [{"part": pt["part"], "start": round(starts[k], 1),
+                  "end": round(starts[k + 1] if k + 1 < len(starts) else total, 1)}
+                 for k, pt in enumerate(script["parts"])]
+        if reel:                                     # a new voice = new timings: the owner chooses again
+            self._drop_owner_clips(self.places.work(reel["base"]))
+        self.kv.set(AROLL_KEY.format(video_id), {"voice_id": voice_id, "spans": spans, "chosen": [], "queue": []})
+        self.store.set_status(video_id, AROLL_PENDING)
+        self.reels.upsert(video_id, step="aroll")
+        token = self.store.open_approval(video_id, "aroll", voice_id, self.settings.dry_run)
+        self.outbox.add("aroll_choice", video_id=video_id, approval=token)
+        return True
+
+    def aroll_state(self, video_id: int) -> dict | None:
+        return self.kv.get(AROLL_KEY.format(video_id))
+
+    def _aroll_open(self, token: str) -> tuple[dict | None, dict | None, str]:
+        approval = self.store.approval(token)
+        if not approval or approval["status"] != "pending":
+            return None, None, "Bu tugma endi ishlamaydi."
+        video = self.store.video(approval["video_id"])
+        state = self.aroll_state(approval["video_id"])
+        if not video or video["status"] != AROLL_PENDING or not state:
+            return None, None, "Bu video endi A-roll kutmayapti."
+        return video, state, ""
+
+    def aroll_toggle(self, token: str, index: int) -> Result:
+        """Tick / untick one part (the message's buttons change in place; nothing is decided yet)."""
+        video, state, err = self._aroll_open(token)
+        if not video:
+            return Result(False, err)
+        if not 0 <= index < len(state["spans"]):
+            return Result(False, "Bunday qism yo'q.")
+        part = state["spans"][index]["part"]
+        chosen = set(state["chosen"])
+        chosen ^= {part}
+        state["chosen"] = [s["part"] for s in state["spans"] if s["part"] in chosen]
+        self.kv.set(AROLL_KEY.format(video["id"]), state)
+        return Result(True, f"{'✅' if part in chosen else '⬜'} {PART_UZ.get(part, part)}")
+
+    def aroll_decision(self, token: str, use: bool) -> Result:
+        """use=False: every part gets stock B-roll. use=True: ask for a clip for each ticked part, one by one."""
+        video, state, err = self._aroll_open(token)
+        if not video:
+            return Result(False, err)
+        if use and not state["chosen"]:
+            return Result(False, "Avval kamida bitta qismni belgilang (yoki «Hammasi B-roll» ni bosing).")
+        try:
+            self.store.decide(token, "approved")
+        except ApprovalError as exc:
+            return Result(False, str(exc))
+        if not use:
+            return self._aroll_finish(video["id"], "🎞 Yaxshi, hamma qismlarga B-roll qo'yiladi — video tayyorlanmoqda.")
+        state["queue"] = list(state["chosen"])
+        self.kv.set(AROLL_KEY.format(video["id"]), state)
+        n = len(state["queue"])
+        return Result(True, f"👍 {n} ta qism uchun o'z videongizni kutaman.\n\n" + self.aroll_request_text(video["id"]))
+
+    def aroll_request_text(self, video_id: int) -> str:
+        state = self.aroll_state(video_id) or {}
+        if not state.get("queue"):
+            return ""
+        part = state["queue"][0]
+        span = next(s for s in state["spans"] if s["part"] == part)
+        secs = span["end"] - span["start"]
+        left = len(state["queue"])
+        return (f"🎬 «{PART_UZ.get(part, part)}» qismi uchun videoni yuboring ({span['start']:.1f}–{span['end']:.1f} s, "
+                f"kamida {secs:.0f} soniya)." + (f" Undan keyin yana {left - 1} ta qism qoladi." if left > 1 else "")
+                + "\nVideoning o'z ovozi ishlatilmaydi — ustidan sizning yozilgan ovozingiz eshitiladi. "
+                  f"Tik (vertikal) video yaxshiroq. Fayl {self.settings.voice.max_download_mb} MB gacha bo'lsin.")
+
+    def aroll_waiting(self) -> dict | None:
+        """The video that waits for the owner's next A-roll clip, if any."""
+        for video in self.store.videos([AROLL_PENDING]):
+            state = self.aroll_state(video["id"])
+            if state and state.get("queue"):
+                return video
+        return None
+
+    def receive_aroll(self, src: Path, suffix: str = ".mp4") -> Result:
+        """The owner's own clip for the part the bot asked about: stored as that part's footage (never replaced by
+        stock B-roll); then the next part is asked, or the render starts."""
+        video = self.aroll_waiting()
+        if not video:
+            return Result(False, "Hozir A-roll video kutayotgan qism yo'q.")
+        state = self.aroll_state(video["id"])
+        part = state["queue"][0]
+        span = next(s for s in state["spans"] if s["part"] == part)
+        from .video import ffmpeg
+        try:
+            info = ffmpeg.probe(src)
+            seconds = float(info["format"]["duration"])
+            if not any(st.get("codec_type") == "video" for st in info["streams"]):
+                raise ValueError("no video stream")
+        except Exception:                                     # noqa: BLE001
+            return Result(False, "Bu fayldan video o'qib bo'lmadi. Iltimos, oddiy video (MP4/MOV) sifatida qayta yuboring.")
+        need = span["end"] - span["start"]
+        reel = self.reels.get(video["id"])
+        work = self.places.work(reel["base"])
+        idx = [s["part"] for s in state["spans"]].index(part) + 1
+        stem = f"{idx:02d}-{part}"
+        (work / "broll").mkdir(parents=True, exist_ok=True)
+        for old in (work / "broll").glob(f"{stem}.*"):        # the stock clip and its normalised copies
+            old.unlink()
+        suffix = suffix.lower() if suffix.lower() in VIDEO_SUFFIXES else ".mp4"
+        rel = f"broll/{stem}{suffix}"
+        shutil.copyfile(src, work / rel)
+        clip = broll_mod.Clip(part, "video", rel, OWNER_PROVIDER, f"{PART_UZ.get(part, part)}: egasining o'z videosi",
+                              "Egasi (Siz)", "Egasining o'z videosi", "Telegram orqali yuborilgan", round(seconds, 2))
+        clips = [c for c in broll_mod.load_sources(work) if c.part != part] + [clip]
+        broll_mod.write_sources(work, sorted(clips, key=lambda c: script_mod.PARTS.index(c.part)))
+        state["queue"] = state["queue"][1:]
+        self.kv.set(AROLL_KEY.format(video["id"]), state)
+        note = (f" (Video {seconds:.1f} s — qism {need:.1f} s, shuning uchun u takrorlanib ko'rsatiladi.)"
+                if seconds + 0.3 < need else "")
+        head = f"✅ «{PART_UZ.get(part, part)}» uchun videongiz qabul qilindi.{note}"
+        if state["queue"]:
+            return Result(True, head + "\n\n" + self.aroll_request_text(video["id"]))
+        return self._aroll_finish(video["id"], head + " Hammasi keldi — video tayyorlanmoqda.")
+
+    def aroll_skip(self, video_id: int) -> Result:
+        """«B-roll qo'y» for the part being asked: it gets stock footage, the next part is asked."""
+        video = self.store.video(video_id)
+        state = self.aroll_state(video_id)
+        if not video or video["status"] != AROLL_PENDING or not state or not state.get("queue"):
+            return Result(False, "Bu tugma endi ishlamaydi.")
+        part = state["queue"].pop(0)
+        self.kv.set(AROLL_KEY.format(video_id), state)
+        head = f"🎞 «{PART_UZ.get(part, part)}» qismiga B-roll qo'yiladi."
+        if state["queue"]:
+            return Result(True, head + "\n\n" + self.aroll_request_text(video_id))
+        return self._aroll_finish(video_id, head + " Video tayyorlanmoqda.")
+
+    def _aroll_finish(self, video_id: int, message: str) -> Result:
+        state = self.aroll_state(video_id) or {}
+        video = self.store.video(video_id)
+        if not self.store.set_status(video_id, RENDERING, expected=(AROLL_PENDING,)):
+            return Result(False, "Bu video endi A-roll kutmayapti.")
+        self.kv.delete(AROLL_KEY.format(video_id))
+        voice_id = video["voice_id"] or state.get("voice_id")
+        self.jobs.enqueue("render", {"video_id": video_id, "voice_id": voice_id, "note": "aroll"},
+                          dedupe_key=f"render:{video_id}:{voice_id}:aroll:{now_iso()}", max_attempts=MAX_RENDER_TRIES)
+        return Result(True, message)
+
+    @staticmethod
+    def _drop_owner_clips(work: Path) -> None:
+        clips = broll_mod.load_sources(work)
+        owner = [c for c in clips if c.provider == OWNER_PROVIDER]
+        if not owner:
+            return
+        for c in owner:
+            for f in (work / "broll").glob(f"{Path(c.file).stem}.*"):
+                f.unlink()
+        broll_mod.write_sources(work, [c for c in clips if c.provider != OWNER_PROVIDER])
 
     def voice_check_decision(self, token: str, action: str) -> Result:
         """action: continue | redo."""
@@ -533,15 +713,19 @@ class Workflow:
         script = self.store.script(video["id"])
         self._write_script_file(video["id"])
         clips = broll_mod.load_sources(work)
-        replace = set(p.get("replace_parts") or [])
-        if replace and clips:                                        # a fix asked for new footage in some parts
-            keep = [c for c in clips if c.part not in replace]
+        # the owner's own clips (A-roll) are never replaced by stock footage, not even by «Yangi B-roll»
+        replace = set(p.get("replace_parts") or []) - {c.part for c in clips if c.provider == OWNER_PROVIDER}
+        have = {c.part for c in clips} - replace
+        if len(have) != len(script_mod.PARTS):                       # new parts, a fix's parts, or no B-roll yet
+            if not have:
+                self.reels.upsert(video["id"], step="broll")
+            keep = [c for c in clips if c.part in have]
             for c in clips:
-                if c.part in replace:
+                if c.part not in have:
                     (work / c.file).unlink(missing_ok=True)
                     for norm in work.glob(f"broll/*-{c.part}.norm.*"):
                         norm.unlink(missing_ok=True)
-            new = broll_mod.collect([pt for pt in script["parts"] if pt["part"] in replace], work, self.broll_providers)
+            new = broll_mod.collect([pt for pt in script["parts"] if pt["part"] not in have], work, self.broll_providers)
             # keep the original numbering: re-collected clips get their part's position
             for c in new:
                 idx = [pt["part"] for pt in script["parts"]].index(c.part) + 1
@@ -551,9 +735,6 @@ class Workflow:
                     c.file = target
             clips = sorted(keep + new, key=lambda c: script_mod.PARTS.index(c.part))
             broll_mod.write_sources(work, clips)
-        if len(clips) != len(script_mod.PARTS):
-            self.reels.upsert(video["id"], step="broll")
-            clips = broll_mod.collect(script["parts"], work, self.broll_providers)
         voice = self.store.voice(video["voice_id"])
         wav, words, duration = self._voice_words(voice)
         al = align([pt["text"] for pt in script["parts"]], words, duration)

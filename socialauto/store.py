@@ -16,6 +16,7 @@ REVISING = "revising"                 # Claude rewrites after Edit / Regenerate
 VOICE_WAITING = "voice_waiting"       # "Ovoz kutilmoqda": the owner records the narration
 VOICE_PROCESSING = "voice_processing"
 VOICE_CHECK = "voice_check"           # the recording differs a lot from the script: the owner decides
+AROLL_PENDING = "aroll_pending"       # Siz: choose the parts for your own video (A-roll) and send the clips
 RENDERING = "rendering"
 VIDEO_PENDING = "video_pending"       # the owner watches the reel
 DONE = "done"                         # the owner scheduled it in Buffer and published the story
@@ -30,15 +31,15 @@ BUFFER_PENDING = "buffer_pending"     # Bot: in Buffer's queue, Buffer posts it 
 STORY_PENDING = "story_pending"       # Siz: publish the story
 
 ACTIVE = (RESEARCHING, TOPIC_PENDING, DRAFTING, SCRIPT_PENDING, REVISING, VOICE_WAITING, VOICE_PROCESSING, VOICE_CHECK,
-          RENDERING, VIDEO_PENDING, COVER_WAITING, PUBLISHING, BUFFER_PENDING, STORY_PENDING)
+          AROLL_PENDING, RENDERING, VIDEO_PENDING, COVER_WAITING, PUBLISHING, BUFFER_PENDING, STORY_PENDING)
 WAITS_FOR_VOICE = (VOICE_WAITING, VOICE_CHECK)
-ACCEPTS_NEW_VOICE = (VOICE_WAITING, VOICE_CHECK, VOICE_PROCESSING, RENDERING, VIDEO_PENDING)   # newest voice wins
+ACCEPTS_NEW_VOICE = (VOICE_WAITING, VOICE_CHECK, VOICE_PROCESSING, AROLL_PENDING, RENDERING, VIDEO_PENDING)   # newest voice wins
 TERMINAL = (DONE, REJECTED, FAILED)
 
 STATUS_UZ = {
     DRAFTING: "Ssenariy yozilmoqda", SCRIPT_PENDING: "Ssenariy tasdig'i kutilmoqda", REVISING: "Qayta yozilmoqda",
     VOICE_WAITING: "Ovoz kutilmoqda", VOICE_PROCESSING: "Ovoz ishlanmoqda", VOICE_CHECK: "Ovoz bo'yicha qaror kutilmoqda",
-    RENDERING: "Video tayyorlanmoqda", VIDEO_PENDING: "Videoni ko'rib chiqish kutilmoqda",
+    AROLL_PENDING: "O'z videongiz (A-roll) kutilmoqda", RENDERING: "Video tayyorlanmoqda", VIDEO_PENDING: "Videoni ko'rib chiqish kutilmoqda",
     DONE: "Tugadi", REJECTED: "Rad etildi", FAILED: "To'xtab qoldi",
     RESEARCHING: "Tadqiqot qilinmoqda", TOPIC_PENDING: "Mavzu tanlash kutilmoqda", COVER_WAITING: "Muqova kutilmoqda",
     PUBLISHING: "Buffer'ga yuborilmoqda", BUFFER_PENDING: "Buffer navbatida — o'z vaqtida chiqadi",

@@ -291,3 +291,17 @@ Each can be changed; the config line or file is named.
   PowerShell 5.1 reads BOM-less files in the ANSI code page).
 - **Stuck reels:** no migration; a reel stopped by the cp949 error is restarted by the existing «🔄 Qayta urinish»
   button (test: the research runs again with the idea intact and stops at topic approval; nothing is posted).
+
+## The owner's own video (A-roll) (owner 2026-11-21)
+- **Asked after the voice is split.** When the owner's voice is accepted, the bot aligns it to the 8 parts and sends
+  one Telegram message (`aroll_choice`): every part with its seconds and first words, a tick button per part, «▶️ Tayyor»
+  and «🎞 Hammasi B-roll». The video waits in `aroll_pending` ("O'z videongiz (A-roll) kutilmoqda", a «Siz» step).
+  Ticking redraws the buttons in place; nothing is decided until «Tayyor» / «Hammasi B-roll».
+- **Clips one by one.** After «Tayyor» the bot asks for each ticked part in order; any video (video, round video,
+  video file) the owner sends then is that part's clip, not a narration. «🎞 Bu qismga B-roll qo'y» skips a part.
+  After the last part the render starts. The clip's own sound is dropped (the narration is the owner's recording);
+  a clip shorter than its part loops (Remotion `Loop`), and the owner is told.
+- **Never replaced.** Owner clips are recorded in `broll/sources.json` with provider "Siz (A-roll)" and are kept by
+  «🔄 Yangi B-roll» and by fix notes; only the remaining parts get licensed stock footage. A new voice means new
+  timings, so the owner's clips are dropped and the question is asked again.
+- Switch: `[reel] ask_aroll` (default true). Tests run with it off except `tests/test_aroll.py`.

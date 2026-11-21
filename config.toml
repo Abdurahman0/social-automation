@@ -54,6 +54,8 @@ broll_providers = ["pexels", "pixabay", "commons"]   # pexels/pixabay only when 
 remotion_concurrency = 1           # one Chrome tab: fits the 3 GB cap with the bot
 music_volume_db = -20
 live_check_minutes = 15
+ask_aroll = true                      # after the voice is split into the 8 parts, the bot asks in Telegram which
+                                      # parts get your own video (A-roll); the rest get licensed B-roll
 
 [youtube]
 # Read-only statistics (scopes youtube.readonly + yt-analytics.readonly). The bot never uploads.

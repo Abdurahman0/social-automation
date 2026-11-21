@@ -67,6 +67,7 @@ class ReelConfig:
     remotion_concurrency: int = 1
     music_volume_db: float = -20
     live_check_minutes: int = 15
+    ask_aroll: bool = True                     # after the voice is split into parts, ask for the owner's own clips
 
 
 @dataclass(frozen=True)

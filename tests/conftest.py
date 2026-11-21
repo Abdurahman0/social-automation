@@ -200,7 +200,7 @@ def settings(root, tmp_path):
     s = load_settings(root / "config.toml", root / "missing.env", root=root)
     assert not s.github.content_remote                                  # tests never push anywhere real
     reel = ReelConfig(work_base=str(tmp_path / "mb" / "_work"), exports=str(tmp_path / "mb" / "exports"),
-                      research_dir=str(tmp_path / "mb" / "_work" / "research"))
+                      research_dir=str(tmp_path / "mb" / "_work" / "research"), ask_aroll=False)
     return replace(s, reel=reel, allowed_user_ids=frozenset({111}), telegram_token="x", dashboard_password="secret-pass",
                    buffer_api_key="", pexels_api_key="", pixabay_api_key="", dry_run=True)
 
