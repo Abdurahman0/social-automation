@@ -434,3 +434,63 @@ def test_decimal_key_fact_in_the_hook_is_heard():
         s["key_fact"], s["parts"][0]["text"] = key, hook
         assert not any("first 5 seconds" in p for p in rs.problems(s)), (key, rs.problems(s))
     assert rs.words("atigi 27,7 foiz") == ["atigi", "27,7", "foiz"]
+
+
+LATE_HOOK = ("Har kuni ichadigan suvimiz qayerdan kelishini va undan keyin qayerga ketishini hech o'ylab ko'rganmisiz? "
+             "Chirchiq oqova suvi atigi 27,7 foiz tozalangan.")
+
+
+def _late_hook_script():
+    s = json.loads(json.dumps(uz_script()))
+    s["key_fact"], s["parts"][0]["text"] = "27,7 foiz", LATE_HOOK
+    return s
+
+
+def test_hook_sentence_with_the_key_number_moves_to_the_front():
+    """Last resort for the first-5-seconds rule: the hook's own key-number sentence goes first, no word changes."""
+    s = _late_hook_script()
+    assert any(rs.is_hook_problem(p) for p in rs.problems(s))
+    fixed = rs.key_sentence_first(s)
+    assert fixed and not any(rs.is_hook_problem(p) for p in rs.problems(fixed))
+    assert fixed["parts"][0]["text"].startswith("Chirchiq oqova suvi atigi 27,7 foiz")
+    assert sorted(rs.words(fixed["parts"][0]["text"])) == sorted(rs.words(LATE_HOOK))
+    assert s["parts"][0]["text"] == LATE_HOOK                       # the input is not changed
+    s["parts"][0]["text"] = "Bu haqda hech kim gapirmaydi. Suv kam tozalanadi."     # the number is not in the hook
+    assert rs.key_sentence_first(s) is None
+
+
+def test_writer_fixes_only_the_hook_when_that_is_the_last_broken_rule():
+    """The same topic failed 5 times on «the script broke the rules twice: the strongest fact ...»: a third, hook-only
+    call now fixes it and the other 7 parts stay as they were."""
+    from socialauto.reel.writer import ReelWriter
+
+    class Claude:
+        def __init__(self, hook):
+            self.calls, self.hook = [], hook
+
+        def generate_json(self, task, prompt, schema, system, **kw):
+            self.calls.append(task)
+            if task == "fix-reel-hook":
+                if self.hook is None:
+                    raise RuntimeError("claude down")
+                return {"hook": self.hook, "key_fact": "27,7 foiz"}
+            return _late_hook_script()
+
+    claude = Claude("Atigi 27,7 foiz: Chirchiq oqova suvi shuncha tozalangan, qolgani daryoga ketadi.")
+    out = ReelWriter(claude, "suv", "uz", rs.WORDS_PER_SECOND).script(topic("Chirchiq oqova suvi"), "")
+    assert claude.calls == ["propose-reel-script", "propose-reel-script-fix", "fix-reel-hook"]
+    assert out["parts"][0]["text"].startswith("Atigi 27,7 foiz") and not rs.problems(out)
+    assert [p["text"] for p in out["parts"][1:]] == [p["text"] for p in _late_hook_script()["parts"][1:]]
+    # Claude fails on the hook too: the local sentence move still saves the script.
+    out = ReelWriter(Claude(None), "suv", "uz", rs.WORDS_PER_SECOND).script(topic("Chirchiq oqova suvi"), "")
+    assert out["parts"][0]["text"].startswith("Chirchiq oqova suvi atigi 27,7 foiz") and not rs.problems(out)
+
+
+def test_black_fade_is_cut_out_of_a_broll_clip():
+    """Stock clips fading in from / out to black failed the whole reel («Qora kadrlar yo'q») on every retry."""
+    from socialauto.reel.render import lit_window
+    assert lit_window([], 6) is None                                 # nothing to cut
+    assert lit_window([(0, 0.5)], 6) == (0.6, 6)                      # fade-in
+    assert lit_window([(0, 0.5), (5.2, 6)], 6) == (0.6, 5.1)          # fade-in and fade-out
+    assert lit_window([(1, 1.4), (5.5, 6)], 6) == (1.5, 5.4)          # the longest lit stretch wins
+    assert lit_window([(0, 6)], 6) is None                            # all black: kept, the gate reports it

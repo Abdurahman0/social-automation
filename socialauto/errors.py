@@ -122,6 +122,17 @@ def explain(error: BaseException | str) -> tuple[str, str]:
         return "push_rejected", "GitHub yuklashni rad etdi (ruxsat yo'q yoki repoda boshqa o'zgarish bor)"
     if "git lfs" in low:
         return "lfs_missing", "video 50 MB dan katta, Git LFS esa o'rnatilmagan"
+    if names & {"MemoryError"} or re.search(r"mkl_malloc|failed to allocate|out of memory|bad_alloc|"
+                                            r"cannot allocate memory", low):
+        return "out_of_memory", ("kompyuterda operativ xotira (RAM) yetmadi — boshqa og'ir dasturlar (brauzer, "
+                                 "o'yin, video) yopilsa, keyingi urinishda o'tib ketadi")
+    if "script broke the rules" in low and "strongest fact" in low:
+        fact = re.search(r"strongest fact \(([^)]*)\)", text)
+        return "script_hook", ("Claude yozgan ssenariyda asosiy raqam" + (f" ({fact.group(1)})" if fact else "") +
+                               " birinchi 5 soniyada (birinchi so'zlarda) aytilmadi")
+    if "script broke the rules" in low:
+        return "script_rules", "Claude yozgan ssenariy qoidalarga to'g'ri kelmadi: " + short(
+            text.split("twice:", 1)[-1], 110)
     if "checklist failed" in low:
         return "checklist", "tayyor video sifat tekshiruvidan o'tmadi: " + short(text.split("checklist failed:", 1)[-1], 120)
     if "remotion" in low or "npx" in low or "node_modules" in low:

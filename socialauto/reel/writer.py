@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date
 from typing import Any
@@ -29,6 +30,13 @@ FIX_SCHEMA: dict[str, Any] = {
                 "subtitle_fix": {"type": ["string", "null"], "description": "corrected subtitle text of this part, or null"},
             }}},
     },
+}
+
+
+HOOK_SCHEMA: dict[str, Any] = {
+    "type": "object", "additionalProperties": False, "required": ["hook", "key_fact"],
+    "properties": {"hook": {"type": "string", "description": "the new hook text"},
+                   "key_fact": {"type": "string", "description": "the key number and its unit, exactly as in the hook"}},
 }
 
 
@@ -117,11 +125,37 @@ class ReelWriter:
                                           f"\"{first}\"; key_fact was \"{draft.get('key_fact', '')}\".)\nPrevious draft parts:\n" + "\n".join(f"{p['part']}: {p['text']}" for p in draft["parts"]),
                                           script_mod.SCHEMA, self._system())
         again = script_mod.problems(fixed, self.wps)
+        if again and all(script_mod.is_hook_problem(p) for p in again):
+            # Only the first-5-seconds rule is left (it failed the same topic 5 times in a row): rewrite just the
+            # hook, then, as a last resort, move the hook's own key-number sentence to the front.
+            fixed = self._fix_hook(fixed)
+            again = script_mod.problems(fixed, self.wps)
         if again:
             safe_record(self.lessons, "script", again)
             raise ValueError("the script broke the rules twice: " + "; ".join(again))
         safe_fixed(self.lessons, ids, "a corrective redraft naming the broken rules")
         return fixed
+
+    def _fix_hook(self, draft: dict) -> dict:
+        """Rewrite only the hook so the key number is among the first words; the other 7 parts stay as they are."""
+        limit = script_mod.first_words_limit(self.wps)
+        hook = draft["parts"][0]["text"]
+        prompt = (f"Rewrite ONLY the hook (the first part) of this reel script. Its FIRST {limit} words must contain "
+                  f"the key number written in DIGITS (best: one of the first 3-6 words). Keep the same meaning, the same "
+                  f"language and about the same length; no greeting or question before the number.\n"
+                  f"CURRENT HOOK: {hook}\nKEY FACT: {draft.get('key_fact', '')}\nNEXT PART (lead, unchanged): "
+                  f"{draft['parts'][1]['text'] if len(draft['parts']) > 1 else ''}\n"
+                  "Return the new hook text and key_fact = only that number with its unit, exactly as written in the hook.")
+        out = json.loads(json.dumps(draft))
+        try:
+            got = self.claude.generate_json("fix-reel-hook", prompt, HOOK_SCHEMA, self._system())
+            if str(got.get("hook", "")).strip() and str(got.get("key_fact", "")).strip():
+                out["parts"][0]["text"], out["key_fact"] = got["hook"].strip(), got["key_fact"].strip()
+        except Exception:                 # noqa: BLE001 - the local fallback below still runs
+            log.warning("hook-only rewrite failed", exc_info=True)
+        if any(script_mod.is_hook_problem(p) for p in script_mod.problems(out, self.wps)):
+            out = script_mod.key_sentence_first(out) or (script_mod.key_sentence_first(draft) or out)
+        return out
 
     def script(self, topic: dict, insight: str) -> dict:
         return self._checked("propose-reel-script", script_prompt(topic, insight, self.wps))

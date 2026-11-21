@@ -14,6 +14,7 @@ Everything here is free and local:
 from __future__ import annotations
 
 import difflib
+import gc
 import json
 import logging
 import re
@@ -162,9 +163,16 @@ class Transcriber(Protocol):
 
 
 @lru_cache(maxsize=1)
-def _whisper(model: str, compute: str, root: str):
+def _whisper(model: str, compute: str, root: str, threads: int = 4):
     from faster_whisper import WhisperModel
-    return WhisperModel(model, device="cpu", compute_type=compute, cpu_threads=4, download_root=root)
+    return WhisperModel(model, device="cpu", compute_type=compute, cpu_threads=threads, download_root=root)
+
+
+def out_of_memory(exc: BaseException) -> bool:
+    """MKL / CTranslate2 / numpy running out of RAM ("mkl_malloc: failed to allocate memory", MemoryError...)."""
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return isinstance(exc, MemoryError) or bool(re.search(r"failed to allocate|out of memory|bad_alloc|cannot allocate",
+                                                           text))
 
 
 class WhisperTranscriber:
@@ -175,12 +183,25 @@ class WhisperTranscriber:
         self.models_dir = models_dir
 
     def transcribe(self, wav: Path, language: str = "en") -> list[Word]:
-        model = _whisper(self.cfg.whisper_model, self.cfg.whisper_compute, str(self.models_dir))
+        try:
+            return self._transcribe(wav, language, threads=4, beam=5)
+        except Exception as exc:          # noqa: BLE001
+            if not out_of_memory(exc):
+                raise
+            # The computer was short of RAM (a render or a browser running at the same time): free the model and
+            # try once more in the light mode (fewer threads, greedy decoding: much less memory, same words).
+            log.warning("speech model ran out of memory; retrying in the light mode", exc_info=True)
+            _whisper.cache_clear()
+            gc.collect()
+            return self._transcribe(wav, language, threads=1, beam=1)
+
+    def _transcribe(self, wav: Path, language: str, threads: int, beam: int) -> list[Word]:
+        model = _whisper(self.cfg.whisper_model, self.cfg.whisper_compute, str(self.models_dir), threads)
         # Decoded by our own ffmpeg to 16 kHz float32 (faster-whisper's PyAV path is version-fragile).
         pcm = subprocess.run([ffmpeg.binary("ffmpeg"), "-v", "error", "-i", str(wav), "-ac", "1", "-ar", "16000",
                               "-f", "s16le", "-"], capture_output=True, timeout=300, check=True).stdout
         samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
-        segments, _ = model.transcribe(samples, language=language, word_timestamps=True, beam_size=5,
+        segments, _ = model.transcribe(samples, language=language, word_timestamps=True, beam_size=beam,
                                        vad_filter=False, condition_on_previous_text=False)
         words = []
         for seg in segments:

@@ -51,17 +51,56 @@ def normalize_clip(src: Path, dst: Path, kind: str, seconds: float) -> tuple[Pat
     if dst.exists():
         return dst, _probe_seconds(dst) if kind == "video" else None
     if kind == "video":
-        need = min(MAX_CLIP_SECONDS, seconds + 1.0)
+        need = min(MAX_CLIP_SECONDS, seconds + 2.0)         # a little extra: black frames may be cut off below
         ffmpeg.run([ffmpeg.binary("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", "-threads", "2", "-i", str(src), "-t",
                     f"{need:.2f}", "-an", "-vf", "scale='if(gt(iw,ih),-2,min(1080,iw))':'if(gt(iw,ih),min(1080,ih),-2)',fps=30",
                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-threads", "2", str(dst)],
                    timeout=900)
+        cut_black(dst)
         return dst, _probe_seconds(dst)
     with Image.open(src) as im:
         im = im.convert("RGB")
         im = ImageOps.contain(im, (1600, 1600))
         im.save(dst, "JPEG", quality=90)
     return dst, None
+
+
+MIN_LIT_SECONDS = 1.0
+
+
+def lit_window(black: list[tuple[float, float]], seconds: float) -> tuple[float, float] | None:
+    """The longest stretch of a clip with no black frames (stock clips often fade in from / out to black, and the
+    whole reel then failed the «Qora kadrlar yo'q» check on every retry). None = the clip has no black to cut."""
+    if not black:
+        return None
+    edges, t = [], 0.0
+    for a, b in sorted(black):
+        if a - t > 0:
+            edges.append((t, a))
+        t = max(t, b)
+    if seconds - t > 0:
+        edges.append((t, seconds))
+    best = max(edges, key=lambda e: e[1] - e[0], default=None)
+    if best is None or best[1] - best[0] < MIN_LIT_SECONDS:
+        return None                               # (almost) all black: keep the clip; the gate will report it
+    pad = 0.1                                     # a fade's darkest frames sit next to the detected edge
+    a, b = best[0] + (pad if best[0] > 0 else 0), best[1] - (pad if best[1] < seconds else 0)
+    return (round(a, 2), round(b, 2)) if b - a >= MIN_LIT_SECONDS else None
+
+
+def cut_black(path: Path) -> Path:
+    """Cut the black lead-in / tail out of a normalised clip, in place."""
+    seconds = _probe_seconds(path)
+    window = lit_window(ffmpeg.black_segments(path, 0.1), seconds)
+    if window is None:
+        return path
+    tmp = path.with_name(path.stem + ".lit.mp4")
+    ffmpeg.run([ffmpeg.binary("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", "-ss", f"{window[0]:.2f}", "-i",
+                str(path), "-t", f"{window[1] - window[0]:.2f}", "-an", "-c:v", "libx264", "-preset", "veryfast",
+                "-crf", "22", "-pix_fmt", "yuv420p", "-threads", "2", str(tmp)], timeout=900)
+    tmp.replace(path)
+    log.info("B-roll %s: black frames cut, kept %.1f–%.1fs of %.1fs", path.name, window[0], window[1], seconds)
+    return path
 
 
 def _probe_seconds(path: Path) -> float:
@@ -111,7 +150,8 @@ class ReelRenderer:
             start = part_starts[k]
             end = part_starts[k + 1] if k + 1 < len(part_starts) else total
             src = work / clip.file
-            dst = src.with_name(src.stem + (".norm.mp4" if clip.kind == "video" else ".norm.jpg"))
+            # ".lit" = normalised AND black lead-in/tail cut (older ".norm.mp4" files may still hold the black frames)
+            dst = src.with_name(src.stem + (".norm.lit.mp4" if clip.kind == "video" else ".norm.jpg"))
             path, secs = normalize_clip(src, dst, clip.kind, end - start)
             media[clip.part] = (str(path.relative_to(work)), secs)
         fonts = work / "_fonts"

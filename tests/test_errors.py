@@ -504,3 +504,31 @@ def test_a_network_blip_while_online_is_not_internet_down(app, fake_claude):
     assert not app.workflow.reporter.net_down()
     assert not app.workflow.reporter.problem("scheduler", requests.ConnectionError("reset"))
     assert len(all_texts(app)) == 1
+
+
+def test_out_of_memory_and_script_hook_are_explained_in_uzbek():
+    code, text = errors.explain(RuntimeError("mkl_malloc: failed to allocate memory"))
+    assert code == "out_of_memory" and "xotira" in text and "mkl" not in text
+    assert errors.explain(MemoryError())[0] == "out_of_memory"
+    code, text = errors.explain(ValueError("the script broke the rules twice: the strongest fact (27,7 foiz) must be "
+                                           "heard in the first 5 seconds (the first 11 words)"))
+    assert code == "script_hook" and "27,7 foiz" in text and "strongest" not in text
+
+
+def test_speech_model_retries_in_the_light_mode_when_ram_runs_out(monkeypatch, tmp_path):
+    from socialauto import voice
+    tried = []
+
+    def fake(self, wav, language, threads, beam):
+        tried.append((threads, beam))
+        if beam == 5:
+            raise RuntimeError("mkl_malloc: failed to allocate memory")
+        return [voice.Word("salom", 0.0, 0.4)]
+
+    monkeypatch.setattr(voice.WhisperTranscriber, "_transcribe", fake)
+    t = voice.WhisperTranscriber(SimpleNamespace(whisper_model="base", whisper_compute="int8"), tmp_path)
+    assert [w.text for w in t.transcribe(tmp_path / "x.wav", "uz")] == ["salom"] and tried == [(4, 5), (1, 1)]
+    monkeypatch.setattr(voice.WhisperTranscriber, "_transcribe",
+                        lambda self, *a, **k: (_ for _ in ()).throw(ValueError("bad wav")))
+    with pytest.raises(ValueError):                                  # other errors are not retried
+        t.transcribe(tmp_path / "x.wav", "uz")

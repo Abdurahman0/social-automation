@@ -145,6 +145,30 @@ def problems(script: dict, wps: float = WORDS_PER_SECOND, min_s: float | None = 
     return out
 
 
+def is_hook_problem(problem: str) -> bool:
+    return problem.startswith("the strongest fact (")
+
+
+def key_sentence_first(script: dict, wps: float = WORDS_PER_SECOND) -> dict | None:
+    """Last resort for the first-5-seconds rule: the hook already says the key number, only later. Move the hook's
+    sentence with that number to the front (no word is added or dropped). None when that does not fix it."""
+    key = str(script.get("key_fact", ""))
+    numbers = {n.replace(",", ".") for n in NUMBER.findall(key)}
+    parts = script.get("parts") or []
+    if not numbers or not parts:
+        return None
+    sentences = [s for s in re.split(r"(?<=[.!?…])\s+", " ".join(str(parts[0].get("text", "")).split())) if s]
+    hit = next((i for i, s in enumerate(sentences)
+                if numbers & {n.replace(",", ".") for n in NUMBER.findall(s)}), None)
+    if not hit:                                   # None (not in the hook) or 0 (already first: too long a sentence)
+        return None
+    out = {**script, "parts": [dict(p) for p in parts]}
+    out["parts"][0]["text"] = " ".join([sentences[hit]] + sentences[:hit] + sentences[hit + 1:])
+    if any(is_hook_problem(p) for p in problems(out, wps)):
+        return None
+    return out
+
+
 _LABELS = {
     "hook": r"hook", "lead": r"lead|kirish", "body1": r"body\s*1|asosiy\s*1", "loop1": r"(open\s*)?loop\s*1|ochiq\s*savol\s*1",
     "body2": r"body\s*2|asosiy\s*2", "loop2": r"(open\s*)?loop\s*2|ochiq\s*savol\s*2", "body3": r"body\s*3|asosiy\s*3",
