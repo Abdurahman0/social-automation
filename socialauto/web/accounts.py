@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import secrets
 import threading
 import time
@@ -30,6 +31,29 @@ class AccountError(RuntimeError):
     def __init__(self, reason: str):
         super().__init__(reason)
         self.reason = reason
+
+
+def meta_reason(message: str, code: Any = None) -> str:
+    """Turn Meta's error into a reason the site can explain, and log Meta's own (redacted) words: a bare
+    "rejected" left the owner guessing between a wrong secret, a wrong redirect and missing permissions."""
+    from ..logging_setup import redact
+    log.warning("Instagram connect: Meta said %s", redact(str(message))[:400])
+    m = str(message).lower()
+    if "client secret" in m or "client_secret" in m:
+        return "meta_secret"
+    if "invalid application id" in m or "error validating application" in m or "invalid client_id" in m:
+        return "meta_app_id"
+    if "redirect_uri" in m or "redirect uri" in m:
+        return "meta_redirect"
+    if "does not belong" in m or "different app" in m:
+        return "meta_other_app"
+    if "authorization code" in m and ("used" in m or "expired" in m):
+        return "expired"
+    if "expired" in m or "session has been invalidated" in m:
+        return "meta_token"
+    if code in (10, 200) or (isinstance(code, int) and 200 <= code <= 299) or "permission" in m or "scope" in m:
+        return "meta_perms"
+    return "rejected"
 
 
 class Accounts:
@@ -107,7 +131,8 @@ class Accounts:
         except (requests.RequestException, ValueError):
             raise AccountError("network") from None
         if "access_token" not in body:
-            raise AccountError("rejected")
+            err = (body or {}).get("error") or {} if isinstance(body, dict) else {}
+            raise AccountError(meta_reason(err.get("message") or body, err.get("code")))
         return self.instagram_token(body["access_token"])
 
     def instagram_token(self, short_token: str) -> dict:
@@ -118,10 +143,13 @@ class Accounts:
         try:
             info = connect(short_token.strip(), app_id, secret, self.settings.instagram.graph_version, self.ig_file(),
                            session=self.s)
-        except InstagramAuthError:
-            raise AccountError("rejected") from None
         except InstagramError as exc:
-            raise AccountError("no_ig_account" if "linked" in str(exc) else "rejected") from None
+            if "no Facebook Page was shared" in str(exc):
+                raise AccountError("no_fb_page") from None
+            if "linked" in str(exc):
+                raise AccountError("no_ig_account") from None
+            code = re.search(r"code (\d+)/", str(exc))
+            raise AccountError(meta_reason(str(exc), int(code.group(1)) if code else None)) from None
         except requests.RequestException:
             raise AccountError("network") from None
         return {"username": info["username"], "page_name": info["page_name"]}

@@ -216,6 +216,8 @@ def connect(short_token: str, app_id: str, app_secret: str, version: str, token_
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(long.get("expires_in") or 5184000))
     pages = call("me/accounts", fields="id,name,access_token,instagram_business_account{id,username}",
                  access_token=user_token).get("data", [])
+    if not pages:
+        raise InstagramError("no Facebook Page was shared with the app")
     linked = [p for p in pages if p.get("instagram_business_account")]
     if not linked:
         raise InstagramError("none of your Facebook Pages has an Instagram Business/Creator account linked")

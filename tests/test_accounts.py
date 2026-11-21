@@ -236,3 +236,15 @@ def test_choosing_his_existing_repo(connected, gh_settings):
     # switching to a new repo later is possible
     assert client.post("/api/accounts/github/choice", json={"mode": "new"}).json()["account"]["mode"] == "new"
     assert ("POST", "https://api.github.com/user/repos") in gh.s.calls
+
+
+def test_meta_errors_get_a_specific_reason_and_are_logged_without_tokens(caplog):
+    from socialauto.web.accounts import meta_reason
+    assert meta_reason("Error validating client secret.", 1) == "meta_secret"
+    assert meta_reason("Error validating application. Invalid application ID.", 101) == "meta_app_id"
+    assert meta_reason("Can't load URL: redirect_uri is not identical to the one you used", 191) == "meta_redirect"
+    assert meta_reason("HTTP 400 code 200/None: Requires pages_read_engagement permission", 200) == "meta_perms"
+    assert meta_reason("This authorization code has been used.", 100) == "expired"
+    assert meta_reason("something new", 1) == "rejected"
+    meta_reason("bad token EAAB" + "x" * 30, 190)
+    assert "EAAB" + "x" * 30 not in caplog.text

@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from socialauto.platforms.instagram import (PERMISSIONS, GraphInstagramClient, InstagramAuthError, InstagramRetryable,
-                                            classify, connect, load_tokens, save_tokens)
+from socialauto.platforms.instagram import (PERMISSIONS, GraphInstagramClient, InstagramAuthError, InstagramError,
+                                            InstagramRetryable, classify, connect, load_tokens, save_tokens)
 from socialauto.platforms.youtube import SCOPES, YouTubeAuthError, YouTubeStats
 
 UTC = timezone.utc
@@ -102,6 +102,17 @@ def test_connect_finds_linked_instagram(tmp_path):
                           "instagram_business_account": {"id": "IG1", "username": "facts"}}]}))])
     info = connect("short", "app", "secret", "v27.0", tmp_path / "ig.json", session=s)
     assert info["username"] == "facts" and load_tokens(tmp_path / "ig.json")["ig_user_id"] == "IG1"
+
+
+def test_connect_tells_no_pages_apart_from_no_instagram(tmp_path):
+    def run(pages):
+        s = FakeSession([("GET", "oauth/access_token", Resp(200, {"access_token": "EAAlong", "expires_in": 5184000})),
+                         ("GET", "me/accounts", Resp(200, {"data": pages}))])
+        with pytest.raises(InstagramError) as exc:
+            connect("short", "app", "secret", "v27.0", tmp_path / "ig.json", session=s)
+        return str(exc.value)
+    assert "no Facebook Page was shared" in run([])
+    assert "linked" in run([{"id": "P0", "name": "No IG", "access_token": "x"}])
 
 
 def test_youtube_missing_token_is_auth_error(tmp_path):
