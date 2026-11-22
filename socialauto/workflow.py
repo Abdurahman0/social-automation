@@ -725,7 +725,8 @@ class Workflow:
                     (work / c.file).unlink(missing_ok=True)
                     for norm in work.glob(f"broll/*-{c.part}.norm.*"):
                         norm.unlink(missing_ok=True)
-            new = broll_mod.collect([pt for pt in script["parts"] if pt["part"] not in have], work, self.broll_providers)
+            new = broll_mod.collect([pt for pt in script["parts"] if pt["part"] not in have], work, self.broll_providers,
+                                    avoid=broll_mod.load_rejected(work))
             # keep the original numbering: re-collected clips get their part's position
             for c in new:
                 idx = [pt["part"] for pt in script["parts"]].index(c.part) + 1
@@ -759,6 +760,8 @@ class Workflow:
             self.store.update_render(render_id, status="failed",
                                      last_error="; ".join(before.problems + rr.after.problems)[:1000], **fields)
             safe_record(self.lessons, "quality", before.problems + rr.after.problems)
+            self._drop_dark_broll(work, clips, checklist.dark_parts(rr.after, [pt["part"] for pt in script["parts"]],
+                                                                    al.part_starts))
             raise RuntimeError("checklist failed: " + "; ".join(before.problems + rr.after.problems)[:500])
         self.store.update_render(render_id, status="ready", **fields)
         if job and job.attempts > 1 and self.lessons:
@@ -767,6 +770,22 @@ class Workflow:
             return
         token = self.store.open_approval(video["id"], "video", render_id, self.settings.dry_run)
         self.outbox.add("video_approval", video_id=video["id"], approval=token)
+
+    @staticmethod
+    def _drop_dark_broll(work: Path, clips: list, parts: list[str]) -> None:
+        """A render failed on black / dark frames: the stock clips of those parts are dropped (and never picked
+        again for this reel), so the next try (automatic or «Qayta urinish») collects new B-roll just for them.
+        Before, every retry reused the same dark clip and failed the same way. The owner's own clips stay."""
+        drop = [c for c in clips if c.part in parts and c.provider != OWNER_PROVIDER]
+        if not drop:
+            return
+        broll_mod.add_rejected(work, [c.source_url for c in drop])
+        for c in drop:
+            (work / c.file).unlink(missing_ok=True)
+            for norm in work.glob(f"broll/*-{c.part}.norm.*"):
+                norm.unlink(missing_ok=True)
+        broll_mod.write_sources(work, [c for c in clips if c not in drop])
+        log.info("dark B-roll dropped for %s: new clips on the next try", ", ".join(c.part for c in drop))
 
     def voice_limit(self) -> float:
         return script_mod.window()[1] + 1.0

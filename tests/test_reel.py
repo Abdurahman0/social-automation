@@ -494,3 +494,88 @@ def test_black_fade_is_cut_out_of_a_broll_clip():
     assert lit_window([(0, 0.5), (5.2, 6)], 6) == (0.6, 5.1)          # fade-in and fade-out
     assert lit_window([(1, 1.4), (5.5, 6)], 6) == (1.5, 5.4)          # the longest lit stretch wins
     assert lit_window([(0, 6)], 6) is None                            # all black: kept, the gate reports it
+
+
+# --- dark B-roll: skipped when collecting, replaced on the next try ------------------------------------------------
+
+def test_dark_photo_and_video_are_too_dark(tmp_path):
+    from socialauto.reel.broll import too_dark
+    dark, bright = tmp_path / "d.jpg", tmp_path / "b.jpg"
+    Image.new("RGB", (270, 480), (8, 8, 12)).save(dark)
+    Image.new("RGB", (270, 480), (60, 120, 160)).save(bright)
+    assert too_dark(dark, "image") and not too_dark(bright, "image")
+    night, day = tmp_path / "n.mp4", tmp_path / "day.mp4"
+    for out, color in ((night, "0x060608"), (day, "0x4080a0")):
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"color=c={color}:s=320x568:d=4",
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)], check=True)
+    assert too_dark(night, "video") and not too_dark(day, "video")
+    assert not too_dark(tmp_path / "missing.mp4", "video")                 # unreadable: left to the render checks
+
+
+def test_collect_skips_dark_and_rejected_clips(tmp_path):
+    class DarkFirst:
+        name = "Wikimedia Commons"
+
+        def search(self, query, kind, limit=8):
+            if kind != "image":
+                return []
+            out = []
+            for n, color in (("dark", (5, 5, 5)), ("old", (90, 120, 160)), ("good", (80, 130, 150))):
+                f = tmp_path / f"{n}.jpg"
+                Image.new("RGB", (1080, 1920), color).save(f)
+                out.append(Candidate("image", f.as_uri(), self.name, f"Water {n}", "A", "CC BY 4.0", f"page/{n}", 1080, 1920))
+            return out
+    part = uz_script()["parts"][:1]
+    clips = collect(part, tmp_path / "w", [DarkFirst()], session=FileSession(), pause=0, avoid={"page/old"})
+    assert clips[0].source_url == "page/good"
+
+
+def test_dark_parts_from_the_after_render_checks():
+    from socialauto.reel.checklist import Report, dark_parts
+    parts = list(rs.PARTS)
+    starts = [0, 4, 10, 17, 22, 28, 33, 40]
+    rep = Report("after")
+    rep.add("Video uzunligi", True, "47 soniya")
+    rep.add("Kadr: Ochiq savol 1 (17.6s)", False, "qora kadr")
+    rep.add("Kadr: Hook (0.6s)", True, "yaxshi")
+    rep.add("Qora kadrlar yo'q", False, "45.1–45.9s")
+    assert dark_parts(rep, parts, starts) == ["loop1", "cta"]
+    ok = Report("after")
+    ok.add("Qora kadrlar yo'q", True, "yo'q")
+    assert dark_parts(ok, parts, starts) == []
+
+
+def test_render_failing_on_dark_broll_gets_new_clips_on_retry(app, clock, long_voice):
+    """A reel stopped on «Qora kadrlar yo'q» on every retry: the same dark clips were reused each time."""
+    from socialauto.reel.broll import load_rejected, load_sources
+    from socialauto.reel.checklist import Report
+    renderer = app.workflow.reel_renderer
+    real_render = renderer.render
+
+    def render_dark_once(**kw):
+        rr = real_render(**kw)
+        if len(renderer.calls) == 1:
+            rr.after = Report("after")
+            rr.after.add("Kadr: Ochiq savol 1 (17.6s)", False, "qora kadr")
+        return rr
+    renderer.render = render_dark_once
+    wf = app.workflow
+    vid = wf.request_new()
+    run_all_jobs(app)
+    wf.topic_decision(app.store.pending_approval(vid, "topic")["id"], 0)
+    run_all_jobs(app)
+    wf.script_decision(app.store.pending_approval(vid, "script")["id"], "approve")
+    wf.route_voice(wf.save_raw_voice(long_voice, "voice", ".wav"))
+    run_all_jobs(app)
+    work = wf.places.work(wf.reels.get(vid)["base"])
+    first = renderer.calls[0]["clips"]
+    assert "loop1" not in {c.part for c in load_sources(work)} and load_rejected(work)   # the dark clip is dropped
+    for _ in range(6):
+        if app.store.video(vid)["status"] == VIDEO_PENDING:
+            break
+        clock.now += timedelta(hours=1)
+        run_all_jobs(app)
+    assert app.store.video(vid)["status"] == VIDEO_PENDING and len(renderer.calls) == 2
+    after = {c.part: c for c in load_sources(work)}
+    assert after["loop1"].source_url not in load_rejected(work) and (work / after["loop1"].file).exists()
+    assert [f for f in renderer.calls[1]["clips"] if "loop1" not in f] == [f for f in first if "loop1" not in f]

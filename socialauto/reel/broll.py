@@ -244,6 +244,65 @@ def download(url: str, dest: Path, session: requests.Session) -> Path:
     return dest
 
 
+# A stock clip this dark fails the render's black-frame checks (the dark bottom overlay pushes it the rest of the way),
+# and every retry then failed the same way. Such clips are skipped already when collecting.
+DARK_MEAN = 40          # mean luma (0..255) under this = a dark frame
+DARK_PIXEL = 25         # a pixel under this luma counts as black ...
+DARK_PIXEL_SHARE = 0.85  # ... and a frame with this share of black pixels is a dark frame too
+DARK_FRAME_SHARE = 0.5  # a clip with more dark sampled frames than this is too dark
+
+
+def frame_dark(gray) -> bool:
+    """One grey frame (numpy array, 0..255): too dark for B-roll?"""
+    import numpy as np
+    g = np.asarray(gray, dtype=np.float32)
+    return bool(g.size) and (g.mean() < DARK_MEAN or (g < DARK_PIXEL).mean() > DARK_PIXEL_SHARE)
+
+
+def _gray_frames(path: Path, kind: str):
+    import numpy as np
+    if kind != "video":
+        from PIL import Image
+        with Image.open(path) as im:
+            return [np.asarray(im.convert("L").resize((64, 114)))]
+    import subprocess
+    from ..video import ffmpeg
+    w, h = 64, 114
+    out = subprocess.run([ffmpeg.binary("ffmpeg"), "-hide_banner", "-loglevel", "error", "-i", str(path), "-an", "-vf",
+                          f"fps=1,scale={w}:{h},format=gray", "-frames:v", "30", "-f", "rawvideo", "pipe:1"],
+                         capture_output=True, timeout=300).stdout
+    n = len(out) // (w * h)
+    return [np.frombuffer(out[k * w * h:(k + 1) * w * h], dtype=np.uint8) for k in range(n)]
+
+
+def too_dark(path: Path, kind: str) -> bool:
+    """True when most of the clip (or the photo) is (almost) black. A file that cannot be read counts as not dark:
+    the render's own checks still see it."""
+    try:
+        frames = _gray_frames(path, kind)
+    except Exception as exc:      # noqa: BLE001
+        log.warning("B-roll darkness check skipped for %s: %s", path.name, exc)
+        return False
+    if not frames:
+        return False
+    return sum(frame_dark(f) for f in frames) / len(frames) > DARK_FRAME_SHARE
+
+
+def load_rejected(workdir: Path) -> set[str]:
+    """Source pages of clips that failed a render's black-frame checks: never picked again for this reel."""
+    f = workdir / "broll" / "rejected.json"
+    try:
+        return set(json.loads(f.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return set()
+
+
+def add_rejected(workdir: Path, urls: list[str]) -> None:
+    f = workdir / "broll" / "rejected.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(sorted(load_rejected(workdir) | {u for u in urls if u}), indent=1), encoding="utf-8")
+
+
 def simplify(query: str) -> list[str]:
     """Fallback queries: the full phrase, then shorter ones ("water treatment plant aerial" -> "water treatment")."""
     words = query.split()
@@ -255,11 +314,13 @@ def simplify(query: str) -> list[str]:
 
 
 def collect(parts: list[dict], workdir: Path, providers: list[Provider], session: requests.Session | None = None,
-            pause: float = 0.5) -> list[Clip]:
-    """One clip per script part. Raises BrollError if a part gets nothing (never a fake or AI image)."""
+            pause: float = 0.5, avoid: set[str] | None = None) -> list[Clip]:
+    """One clip per script part. Raises BrollError if a part gets nothing (never a fake or AI image). Too dark clips
+    and the source pages in `avoid` (clips that already failed a render) are skipped."""
     s = session or requests.Session()
     clips: list[Clip] = []
     used: set[str] = set()
+    avoid = avoid or set()
     for i, part in enumerate(parts, start=1):
         chosen = None
         for query in simplify(part.get("broll") or "water"):
@@ -271,7 +332,7 @@ def collect(parts: list[dict], workdir: Path, providers: list[Provider], session
                     except Exception as exc:     # noqa: BLE001 - one provider down: try the others
                         log.warning("B-roll search failed at %s: %s", p.name, exc)
                     time.sleep(pause)
-                cands = [c for c in cands if acceptable(c, used)]
+                cands = [c for c in cands if acceptable(c, used) and not (c.source_url and c.source_url in avoid)]
                 if any(relevance(c, query) > 0 for c in cands):          # on-topic clips only, when there are any
                     cands = [c for c in cands if relevance(c, query) > 0]
                 cands = sorted(cands, key=lambda c: score(c, query), reverse=True)
@@ -287,6 +348,11 @@ def collect(parts: list[dict], workdir: Path, providers: list[Provider], session
                             download(c.url, workdir / rel, s)
                     except Exception as exc:      # noqa: BLE001
                         log.warning("B-roll download failed: %s", exc)
+                        continue
+                    if too_dark(workdir / rel, c.kind):
+                        log.info("B-roll for %s skipped: too dark (%s)", part["part"], c.title[:80])
+                        (workdir / rel).unlink(missing_ok=True)
+                        used.add(c.url)
                         continue
                     chosen = Clip(part["part"], c.kind, rel, c.provider, c.title[:160], c.author[:120], c.license or "",
                                   c.source_url, c.seconds, query)

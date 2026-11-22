@@ -7,6 +7,7 @@ voice, render, quality and the owner's own notes). It is rewritten whenever the 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from PIL import Image
 
 from ..lessons import STAGE_UZ, Lessons
 from . import layout as layout_mod
-from .script import MAX_SECONDS, MIN_SECONDS, PARTS, problems as script_problems, window
+from .script import MAX_SECONDS, MIN_SECONDS, PART_UZ, PARTS, problems as script_problems, window
 
 BASE_RULES = [
     ("Ssenariy", "8 qism tartibda: hook · kirish · asosiy 1 · ochiq savol · asosiy 2 · ochiq savol · asosiy 3 · CTA."),
@@ -124,6 +125,33 @@ def after_render(video: Path, frames: list[tuple[str, float, Path]], gate_checks
         prob = frame_problem(path) if path.exists() else "kadr olinmadi"
         rep.add(f"Kadr: {part} ({t:.1f}s)", prob is None, "yaxshi" if prob is None else prob)
     return rep
+
+
+BLACK_RULE = "Qora kadrlar yo'q"
+_SPAN = re.compile(r"(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)\s*s")
+
+
+def dark_parts(after: Report, parts: list[str], part_starts: list[float]) -> list[str]:
+    """The script parts whose B-roll made the render fail: a black / flat / blurry section frame, or black frames
+    («Qora kadrlar yo'q») inside the part's time span. New B-roll for exactly these parts fixes the next render."""
+    by_label = {PART_UZ.get(p, p): p for p in parts} | {p: p for p in parts}
+    bad: set[str] = set()
+    for c in after.checks:
+        if c["ok"]:
+            continue
+        if c["rule"].startswith("Kadr: "):
+            label = c["rule"][len("Kadr: "):].rsplit(" (", 1)[0]
+            if label in by_label:
+                bad.add(by_label[label])
+        elif c["rule"] == BLACK_RULE:
+            for a, b in _SPAN.findall(c["detail"]):
+                a, b = float(a), float(b)
+                for k, p in enumerate(parts):
+                    start = part_starts[k] if k < len(part_starts) else float("inf")
+                    end = part_starts[k + 1] if k + 1 < len(part_starts) else float("inf")
+                    if a < end and b >= start:
+                        bad.add(p)
+    return [p for p in parts if p in bad]
 
 
 def save(path: Path, before: Report, after: Report | None) -> None:
