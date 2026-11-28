@@ -29,7 +29,8 @@ log = logging.getLogger(__name__)
 STEP_UZ = {
     "research": "Mavzu qidirish", "propose": "Ssenariy", "regenerate": "Ssenariy (yangi variant)",
     "rewrite": "Ssenariyni tahrirlash", "plan_from_voice": "Ovozdan reja", "process_voice": "Ovoz",
-    "render": "Video yig'ish", "reel_fix": "Videoni tuzatish", "reel_publish": "GitHub va Buffer navbati",
+    "render": "Video yig'ish", "reel_fix": "Videoni tuzatish", "package": "Post matnlari",
+    "reel_publish": "GitHub va Buffer navbati",
     "story": "Story qoralamasi", "live_check": "Buffer holati", "analytics": "Statistika",
     "scheduler": "Bot ishi (navbat)", "telegram": "Telegram buyrug'i", "update": "Avtomatik yangilanish",
     "startup": "Ishga tushish tekshiruvi", "content_push": "GitHub'ga saqlash",
@@ -91,6 +92,12 @@ def explain(error: BaseException | str) -> tuple[str, str]:
     text = " ".join(f"{type(e).__name__}: {e}" for e in excs) if excs else str(error)
     low = text.lower()
     names = {type(e).__name__ for e in excs}
+    media = next((e for e in excs if type(e).__name__ == "MediaHostError"), None)
+    if media is not None:                                 # already plain Uzbek (socialauto/reel/media_host.py)
+        return "media_host", "Buffer uchun video havolasi tayyor bo'lmadi: " + short(str(media), 260)
+    buf = next((e for e in excs if type(e).__name__ == "BufferError"), None)
+    if buf is not None and "network:" not in str(buf):
+        return "buffer_refused", "Buffer postni qabul qilmadi: " + short(str(buf), 200)
     if any(isinstance(e, OSError) and e.errno == errno.ENOSPC for e in excs) or "no space left" in low:
         return "disk_full", "kompyuter diskida joy qolmadi — keraksiz fayllarni o'chiring (masalan eski videolar)"
     if (names & {"ConnectionError", "NewConnectionError", "MaxRetryError", "NameResolutionError", "gaierror",

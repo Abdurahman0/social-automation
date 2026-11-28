@@ -34,6 +34,11 @@ efirga chiqqanini aniqlaydi (story qoralamasi uchun). Chiqish vaqtini Buffer'dag
 3. Buffer'da **Instagram (Business/Creator)**, **YouTube** va **LinkedIn** kanallari ulangan bo'lsin (Buffer → Channels).
 Saqlaganingizdan keyin bot o'zi qayta ishga tushadi.
 Kalit bo'lmasa: tadqiqot statistikasiz ishlaydi va reellar Buffer'ga yuborilmaydi.
+4. **Sinov rejimini o'chiring:** `python -m socialauto dry-run off`, keyin botni qayta ishga tushiring. Yoqiq bo'lsa,
+   reel Buffer'ga **yuborilmaydi** (tasdiq xabarida «🧪 Sinov rejimi yoqiq» deb yoziladi).
+5. **GitHub ulangan bo'lsin** (Sozlamalar → GitHub → «GitHub'ni ulash»). Buffer videoni post chiqadigan paytda ochiq
+   havoladan oladi: bot sizning GitHub'ingizda ochiq `social-automation-media` reposini o'zi yaratadi (GitHub Pages),
+   videoni o'sha yerga qo'yadi va Buffer joylab bo'lgach o'chirib tashlaydi.
 
 ## 5. Sinov rejimini o'chirish (Buffer ulangandan keyin)
 Sinov rejimida (`dry_run = true`) Buffer'ga hech narsa yuborilmaydi — faqat `data/dryrun_posts.json` ga yoziladi.

@@ -293,15 +293,38 @@ Each can be changed; the config line or file is named.
   button (test: the research runs again with the idea intact and stops at topic approval; nothing is posted).
 
 ## The owner's own video (A-roll) (owner 2026-11-21)
-- **Asked after the voice is split.** When the owner's voice is accepted, the bot aligns it to the 8 parts and sends
-  one Telegram message (`aroll_choice`): every part with its seconds and first words, a tick button per part, «▶️ Tayyor»
-  and «🎞 Hammasi B-roll». The video waits in `aroll_pending` ("O'z videongiz (A-roll) kutilmoqda", a «Siz» step).
-  Ticking redraws the buttons in place; nothing is decided until «Tayyor» / «Hammasi B-roll».
-- **Clips one by one.** After «Tayyor» the bot asks for each ticked part in order; any video (video, round video,
-  video file) the owner sends then is that part's clip, not a narration. «🎞 Bu qismga B-roll qo'y» skips a part.
-  After the last part the render starts. The clip's own sound is dropped (the narration is the owner's recording);
+- **Asked part by part (owner 2026-11-28; replaced the one tick-list message).** When the owner's voice is accepted,
+  the bot aligns it to the 8 parts and asks about ONE part at a time (`aroll_part`): its number, name, seconds and
+  full text, with «🎥 A-roll (o'z videom)», «🎞 B-roll» and «🎞 Qolganlari hammasi B-roll». The video waits in
+  `aroll_pending` ("O'z videongiz (A-roll) kutilmoqda", a «Siz» step). Stale buttons of an answered part do nothing.
+- **A-roll = the clip right away.** After «A-roll» the bot waits for that part's clip; any video (video, round video,
+  video file) the owner sends then is that part's clip, not a narration. «🎞 Bu qismga B-roll qo'y» changes the answer
+  to B-roll. Then the next part is asked; after the last part the render starts. The clip's own sound is dropped (the narration is the owner's recording);
   a clip shorter than its part loops (Remotion `Loop`), and the owner is told.
 - **Never replaced.** Owner clips are recorded in `broll/sources.json` with provider "Siz (A-roll)" and are kept by
   «🔄 Yangi B-roll» and by fix notes; only the remaining parts get licensed stock footage. A new voice means new
   timings, so the owner's clips are dropped and the question is asked again.
 - Switch: `[reel] ask_aroll` (default true). Tests run with it off except `tests/test_aroll.py`.
+
+## One package to approve, and a Buffer link that lasts (owner 2026-11-28)
+- **Why reels did not reach Buffer.** (1) `createPost` never sent `needsApproval`, a required `Boolean!` of
+  `CreatePostInput`, so Buffer refused every post. (2) Buffer has no upload endpoint and fetches the media **when the
+  post goes out** (developers.buffer.com/guides/hosting-media: "must stay reachable until the post publishes"); the
+  Cloudflare quick tunnel was closed right after `createPost`, so a queued reel had nothing to fetch at its time.
+  Now: `needsApproval: false` on every input, YouTube `type: short`, and the files go to a stable link.
+- **The stable link: GitHub Pages** (`socialauto/reel/media_host.py`). The app makes the user's own PUBLIC repo
+  `<login>/social-automation-media` (README + `.nojekyll`), turns Pages on and uploads each file under a random folder
+  (`r/<random>/<name>`), then waits until the https link answers 200 with a video/image content type. Free, direct,
+  survives restarts. The private content repo stays private; the code repo is never touched. When Buffer reports
+  every post of the reel sent (or gone), the video is deleted again; the story cover after «Storyni joyladim».
+  Limits: 95 MB per file; needs the website's GitHub login (device flow, `repo` scope). Without it the owner gets a
+  plain message what to do; nothing is faked.
+- **The package.** After a render passes the checklist, a `package` job writes the post texts (Instagram, YouTube
+  title + description, LinkedIn, story) first, then the owner gets the video and ONE message with everything that
+  will go to Buffer (on-screen title, length, version, checks, A-roll/B-roll count, key fact, hashtags, sources, every
+  text, where it goes, the dry-run warning). Buttons: «✅ Tasdiqlash (Buffer'ga)», «✏️ Matnlarni o'zgartirish» (opens
+  one button per text in place; the owner types the new text, it is checked for length and the package is shown
+  again), «🎬 Videoni tuzatish», «🔄 Yangi B-roll», «❌ Rad etish». Approve still asks for the owner's cover (law 16);
+  as soon as it arrives the reel is queued with exactly the approved texts (no second Claude call).
+- **Texts across versions.** Texts are written again only when the script version changes (a fix note); texts the
+  owner typed himself are kept (`captions:<video>` in KV).

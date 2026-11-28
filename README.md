@@ -215,6 +215,7 @@ socialauto/
   workflow.py                                    the flow (research → … → Buffer queue → story draft)
   reel/      research writer script broll align layout render checklist publish buffer naming state
   platforms/ youtube.py instagram.py             READ-ONLY statistics clients; tunnel.py dryrun.py
+  reel/media_host.py                            Buffer's stable video link (GitHub Pages, deleted after posting)
   runner.py                                      bot service: waits for the token, restarts on .env change, Claude alert,
                                                  startup checks
   errors.py                                      Task 10: plain-Uzbek error messages to Telegram, no spam

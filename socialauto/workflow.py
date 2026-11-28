@@ -52,12 +52,17 @@ log = logging.getLogger(__name__)
 
 MAX_RENDER_TRIES = 3
 AUTH_RETRY = timedelta(minutes=30)
-CLAUDE_JOBS = ("research", "propose", "regenerate", "rewrite", "plan_from_voice", "reel_fix", "reel_publish")
+CLAUDE_JOBS = ("research", "propose", "regenerate", "rewrite", "plan_from_voice", "reel_fix", "package", "reel_publish")
 # The video status each job works in: «Qayta urinish» puts a stopped reel back there (Task 10).
 JOB_STATUS = {"research": RESEARCHING, "propose": DRAFTING, "plan_from_voice": DRAFTING, "regenerate": REVISING,
-              "rewrite": REVISING, "process_voice": VOICE_PROCESSING, "render": RENDERING, "reel_fix": RENDERING,
+              "rewrite": REVISING, "process_voice": VOICE_PROCESSING, "render": RENDERING, "reel_fix": RENDERING, "package": RENDERING,
               "reel_publish": PUBLISHING}
-AROLL_KEY = "aroll:{}"                    # the owner's A-roll choice for one video (KV): spans, chosen, queue
+AROLL_KEY = "aroll:{}"                    # the owner's A-roll answers for one video (KV): spans, index, waiting
+CAPTIONS_KEY = "captions:{}"              # which script version the post texts were written for + owner-edited fields
+# The post texts the owner can change in the final package (field -> Uzbek name, max length)
+CAPTION_FIELDS = {"youtube_title": ("YouTube sarlavhasi", 100), "youtube_description": ("YouTube tavsifi", 4900),
+                  "instagram": ("Instagram matni", 2200), "linkedin": ("LinkedIn matni", 3000),
+                  "story_text": ("Story matni", 100)}
 OWNER_PROVIDER = "Siz (A-roll)"           # a clip the owner sent himself: never replaced by stock footage
 VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".3gp")
 NEW_JOBS = {RESEARCHING: ("research",), DRAFTING: ("propose", "plan_from_voice")}
@@ -85,7 +90,7 @@ class Workflow:
                  transcriber: voice_mod.Transcriber, budget: Budget | None, lessons: Lessons | None,
                  clock: Callable[[], datetime], *, buffer=None, buffer_stats=None, reel_writer=None,
                  places: naming.Places, reel_renderer: ReelRenderer, broll_providers=None, public_files=None,
-                 content=None):
+                 content=None, media_host=None):
         self.settings = settings
         if content is None:
             from .content_repo import ContentRepo
@@ -110,6 +115,7 @@ class Workflow:
         self.reel_renderer = reel_renderer
         self.broll_providers = broll_providers or []
         self.public_files = public_files
+        self.media_host = media_host          # stable public links Buffer fetches at posting time (deleted afterwards)
         self.cfg = settings.reel
         self.reporter = ErrorReporter(outbox, kv, clock)
 
@@ -232,11 +238,12 @@ class Workflow:
                  for k, pt in enumerate(script["parts"])]
         if reel:                                     # a new voice = new timings: the owner chooses again
             self._drop_owner_clips(self.places.work(reel["base"]))
-        self.kv.set(AROLL_KEY.format(video_id), {"voice_id": voice_id, "spans": spans, "chosen": [], "queue": []})
+        self.kv.set(AROLL_KEY.format(video_id), {"voice_id": voice_id, "spans": spans, "index": 0, "waiting": False,
+                                                 "owner": []})
         self.store.set_status(video_id, AROLL_PENDING)
         self.reels.upsert(video_id, step="aroll")
         token = self.store.open_approval(video_id, "aroll", voice_id, self.settings.dry_run)
-        self.outbox.add("aroll_choice", video_id=video_id, approval=token)
+        self.outbox.add("aroll_part", video_id=video_id, approval=token, index=0)
         return True
 
     def aroll_state(self, video_id: int) -> dict | None:
@@ -252,68 +259,73 @@ class Workflow:
             return None, None, "Bu video endi A-roll kutmayapti."
         return video, state, ""
 
-    def aroll_toggle(self, token: str, index: int) -> Result:
-        """Tick / untick one part (the message's buttons change in place; nothing is decided yet)."""
+    def aroll_choice(self, token: str, index: int, aroll: bool) -> Result:
+        """The answer for ONE part: A-roll (the owner sends his own clip for it now) or B-roll (stock footage).
+        Then the next part is asked, one by one; after the last one the render starts."""
         video, state, err = self._aroll_open(token)
         if not video:
             return Result(False, err)
-        if not 0 <= index < len(state["spans"]):
-            return Result(False, "Bunday qism yo'q.")
+        if index != state["index"] or state.get("waiting"):
+            return Result(False, "Bu qism uchun javob allaqachon berilgan.")
         part = state["spans"][index]["part"]
-        chosen = set(state["chosen"])
-        chosen ^= {part}
-        state["chosen"] = [s["part"] for s in state["spans"] if s["part"] in chosen]
-        self.kv.set(AROLL_KEY.format(video["id"]), state)
-        return Result(True, f"{'✅' if part in chosen else '⬜'} {PART_UZ.get(part, part)}")
+        if aroll:
+            state["waiting"] = True
+            self.kv.set(AROLL_KEY.format(video["id"]), state)
+            return Result(True, self.aroll_request_text(video["id"]))
+        return self._aroll_next(video["id"], state, f"🎞 {index + 1}. «{PART_UZ.get(part, part)}» — B-roll.")
 
-    def aroll_decision(self, token: str, use: bool) -> Result:
-        """use=False: every part gets stock B-roll. use=True: ask for a clip for each ticked part, one by one."""
+    def aroll_rest_broll(self, token: str) -> Result:
+        """«Qolganlari B-roll»: this part and every part after it get stock footage; the render starts."""
         video, state, err = self._aroll_open(token)
         if not video:
             return Result(False, err)
-        if use and not state["chosen"]:
-            return Result(False, "Avval kamida bitta qismni belgilang (yoki «Hammasi B-roll» ni bosing).")
-        try:
-            self.store.decide(token, "approved")
-        except ApprovalError as exc:
-            return Result(False, str(exc))
-        if not use:
-            return self._aroll_finish(video["id"], "🎞 Yaxshi, hamma qismlarga B-roll qo'yiladi — video tayyorlanmoqda.")
-        state["queue"] = list(state["chosen"])
-        self.kv.set(AROLL_KEY.format(video["id"]), state)
-        n = len(state["queue"])
-        return Result(True, f"👍 {n} ta qism uchun o'z videongizni kutaman.\n\n" + self.aroll_request_text(video["id"]))
+        if state.get("waiting"):
+            return Result(False, "Avval shu qism uchun videoni yuboring yoki «🎞 Bu qismga B-roll qo'y» ni bosing.")
+        owner = len(state.get("owner") or [])
+        head = ("🎞 Yaxshi, hamma qismlarga B-roll qo'yiladi" if not owner else
+                f"🎞 Yaxshi, qolgan qismlarga B-roll qo'yiladi ({owner} ta qismda sizning videongiz)")
+        return self._aroll_finish(video["id"], head + " — video tayyorlanmoqda.")
+
+    def _aroll_next(self, video_id: int, state: dict, head: str) -> Result:
+        state["index"] += 1
+        state["waiting"] = False
+        if state["index"] >= len(state["spans"]):
+            return self._aroll_finish(video_id, head + " Hamma qismlar belgilandi — video tayyorlanmoqda.")
+        self.kv.set(AROLL_KEY.format(video_id), state)
+        approval = self.store.pending_approval(video_id, "aroll")
+        if approval:
+            self.outbox.add("aroll_part", video_id=video_id, approval=approval["id"], index=state["index"])
+        return Result(True, head)
 
     def aroll_request_text(self, video_id: int) -> str:
         state = self.aroll_state(video_id) or {}
-        if not state.get("queue"):
+        if not state.get("waiting"):
             return ""
-        part = state["queue"][0]
-        span = next(s for s in state["spans"] if s["part"] == part)
+        span = state["spans"][state["index"]]
+        part = span["part"]
         secs = span["end"] - span["start"]
-        left = len(state["queue"])
-        return (f"🎬 «{PART_UZ.get(part, part)}» qismi uchun videoni yuboring ({span['start']:.1f}–{span['end']:.1f} s, "
-                f"kamida {secs:.0f} soniya)." + (f" Undan keyin yana {left - 1} ta qism qoladi." if left > 1 else "")
-                + "\nVideoning o'z ovozi ishlatilmaydi — ustidan sizning yozilgan ovozingiz eshitiladi. "
-                  f"Tik (vertikal) video yaxshiroq. Fayl {self.settings.voice.max_download_mb} MB gacha bo'lsin.")
+        return (f"🎥 {state['index'] + 1}. «{PART_UZ.get(part, part)}» qismi uchun o'z videongizni yuboring "
+                f"({span['start']:.1f}–{span['end']:.1f} s, kamida {secs:.0f} soniya).\n"
+                "Videoning o'z ovozi ishlatilmaydi — ustidan sizning yozilgan ovozingiz eshitiladi. "
+                f"Tik (vertikal) video yaxshiroq. Fayl {self.settings.voice.max_download_mb} MB gacha bo'lsin.")
 
     def aroll_waiting(self) -> dict | None:
-        """The video that waits for the owner's next A-roll clip, if any."""
+        """The video that waits for the owner's A-roll clip of the current part, if any."""
         for video in self.store.videos([AROLL_PENDING]):
             state = self.aroll_state(video["id"])
-            if state and state.get("queue"):
+            if state and state.get("waiting"):
                 return video
         return None
 
     def receive_aroll(self, src: Path, suffix: str = ".mp4") -> Result:
-        """The owner's own clip for the part the bot asked about: stored as that part's footage (never replaced by
+        """The owner's own clip for the part he chose A-roll for: stored as that part's footage (never replaced by
         stock B-roll); then the next part is asked, or the render starts."""
         video = self.aroll_waiting()
         if not video:
             return Result(False, "Hozir A-roll video kutayotgan qism yo'q.")
         state = self.aroll_state(video["id"])
-        part = state["queue"][0]
-        span = next(s for s in state["spans"] if s["part"] == part)
+        span = state["spans"][state["index"]]
+        part = span["part"]
         from .video import ffmpeg
         try:
             info = ffmpeg.probe(src)
@@ -325,7 +337,7 @@ class Workflow:
         need = span["end"] - span["start"]
         reel = self.reels.get(video["id"])
         work = self.places.work(reel["base"])
-        idx = [s["part"] for s in state["spans"]].index(part) + 1
+        idx = state["index"] + 1
         stem = f"{idx:02d}-{part}"
         (work / "broll").mkdir(parents=True, exist_ok=True)
         for old in (work / "broll").glob(f"{stem}.*"):        # the stock clip and its normalised copies
@@ -337,27 +349,19 @@ class Workflow:
                               "Egasi (Siz)", "Egasining o'z videosi", "Telegram orqali yuborilgan", round(seconds, 2))
         clips = [c for c in broll_mod.load_sources(work) if c.part != part] + [clip]
         broll_mod.write_sources(work, sorted(clips, key=lambda c: script_mod.PARTS.index(c.part)))
-        state["queue"] = state["queue"][1:]
-        self.kv.set(AROLL_KEY.format(video["id"]), state)
+        state["owner"] = (state.get("owner") or []) + [part]
         note = (f" (Video {seconds:.1f} s — qism {need:.1f} s, shuning uchun u takrorlanib ko'rsatiladi.)"
                 if seconds + 0.3 < need else "")
-        head = f"✅ «{PART_UZ.get(part, part)}» uchun videongiz qabul qilindi.{note}"
-        if state["queue"]:
-            return Result(True, head + "\n\n" + self.aroll_request_text(video["id"]))
-        return self._aroll_finish(video["id"], head + " Hammasi keldi — video tayyorlanmoqda.")
+        return self._aroll_next(video["id"], state, f"✅ {idx}. «{PART_UZ.get(part, part)}» uchun videongiz qabul qilindi.{note}")
 
     def aroll_skip(self, video_id: int) -> Result:
-        """«B-roll qo'y» for the part being asked: it gets stock footage, the next part is asked."""
+        """«B-roll qo'y» while the bot waits for the owner's clip: this part gets stock footage, the next is asked."""
         video = self.store.video(video_id)
         state = self.aroll_state(video_id)
-        if not video or video["status"] != AROLL_PENDING or not state or not state.get("queue"):
+        if not video or video["status"] != AROLL_PENDING or not state or not state.get("waiting"):
             return Result(False, "Bu tugma endi ishlamaydi.")
-        part = state["queue"].pop(0)
-        self.kv.set(AROLL_KEY.format(video_id), state)
-        head = f"🎞 «{PART_UZ.get(part, part)}» qismiga B-roll qo'yiladi."
-        if state["queue"]:
-            return Result(True, head + "\n\n" + self.aroll_request_text(video_id))
-        return self._aroll_finish(video_id, head + " Video tayyorlanmoqda.")
+        part = state["spans"][state["index"]]["part"]
+        return self._aroll_next(video_id, state, f"🎞 {state['index'] + 1}. «{PART_UZ.get(part, part)}» — B-roll.")
 
     def _aroll_finish(self, video_id: int, message: str) -> Result:
         state = self.aroll_state(video_id) or {}
@@ -365,6 +369,12 @@ class Workflow:
         if not self.store.set_status(video_id, RENDERING, expected=(AROLL_PENDING,)):
             return Result(False, "Bu video endi A-roll kutmayapti.")
         self.kv.delete(AROLL_KEY.format(video_id))
+        approval = self.store.pending_approval(video_id, "aroll")
+        if approval:
+            try:
+                self.store.decide(approval["id"], "approved")
+            except ApprovalError:
+                pass
         voice_id = video["voice_id"] or state.get("voice_id")
         self.jobs.enqueue("render", {"video_id": video_id, "voice_id": voice_id, "note": "aroll"},
                           dedupe_key=f"render:{video_id}:{voice_id}:aroll:{now_iso()}", max_attempts=MAX_RENDER_TRIES)
@@ -766,10 +776,65 @@ class Workflow:
         self.store.update_render(render_id, status="ready", **fields)
         if job and job.attempts > 1 and self.lessons:
             self.lessons.fix_open("quality", "a re-render (new footage / new version) passed the checklist")
-        if not self.store.set_status(video["id"], VIDEO_PENDING, expected=(RENDERING,), render_id=render_id):
+        # the full package (video + every post text) goes to the owner in one go: the texts are written next
+        self.store.update_video(video["id"], render_id=render_id)
+        self.jobs.enqueue("package", {"video_id": video["id"], "render_id": render_id},
+                          dedupe_key=f"package:{render_id}")
+
+    def job_package(self, p: dict) -> None:
+        """The finished video's post texts (Instagram, YouTube title + description, LinkedIn, story) are written
+        BEFORE the owner sees it, so he approves, rejects or changes everything at once. Texts the owner changed by
+        hand are kept on later versions; the others are written again when the script changed."""
+        video = self.store.video(p["video_id"])
+        if not video or video["status"] != RENDERING or video.get("render_id") != p["render_id"]:
             return
-        token = self.store.open_approval(video["id"], "video", render_id, self.settings.dry_run)
+        self.reels.upsert(video["id"], captions=self.post_texts(video))
+        if not self.store.set_status(video["id"], VIDEO_PENDING, expected=(RENDERING,), render_id=p["render_id"]):
+            return
+        token = self.store.open_approval(video["id"], "video", p["render_id"], self.settings.dry_run)
         self.outbox.add("video_approval", video_id=video["id"], approval=token)
+
+    def post_texts(self, video: dict) -> dict:
+        reel = self.reels.get(video["id"]) or {}
+        captions = dict(reel.get("captions") or {})
+        meta = self.kv.get(CAPTIONS_KEY.format(video["id"])) or {}
+        edited = set(meta.get("edited") or [])
+        if captions and meta.get("script_version") == video["script_version"]:
+            return captions
+        script = self.store.script(video["id"])
+        style = publish.learn_style(self.claude_for_captions(), self.buffer_stats,
+                                    self.settings.data_dir / "style" / "caption_style.md")
+        from .reel.writer import brand_block
+        style += brand_block(self.content_context().get("brand"))
+        fresh = publish.write_captions(self.claude_for_captions(), script, style, self.cfg.language)
+        fresh["youtube_title"] = (fresh.get("youtube_title") or script["title"])[:100]
+        out = {**fresh, **{k: v for k, v in captions.items() if k in edited}}
+        self.kv.set(CAPTIONS_KEY.format(video["id"]), {"script_version": video["script_version"], "edited": sorted(edited)})
+        return out
+
+    def field_edit(self, token: str, field: str, text: str) -> Result:
+        """The owner changes one post text of the package (typed in Telegram); the package is shown again."""
+        approval = self.store.approval(token)
+        if not approval or approval["status"] != "pending" or approval["stage"] != "video":
+            return Result(False, "Bu video uchun o'zgartirish endi kerak emas.")
+        if field not in CAPTION_FIELDS:
+            return Result(False, "Bunday maydon yo'q.")
+        name, limit = CAPTION_FIELDS[field]
+        text = text.strip()
+        if not text:
+            return Result(False, f"{name} bo'sh bo'lmasin.")
+        if len(text) > limit:
+            return Result(False, f"{name} {len(text)} belgi — eng ko'pi {limit}. Qisqartirib qayta yuboring.")
+        vid = approval["video_id"]
+        reel = self.reels.get(vid) or {}
+        captions = dict(reel.get("captions") or {})
+        captions[field] = text
+        self.reels.upsert(vid, captions=captions)
+        meta = self.kv.get(CAPTIONS_KEY.format(vid)) or {}
+        meta["edited"] = sorted(set(meta.get("edited") or []) | {field})
+        self.kv.set(CAPTIONS_KEY.format(vid), meta)
+        self.outbox.add("video_details", video_id=vid, approval=token)
+        return Result(True, f"✅ {name} o'zgartirildi. Yangilangan ma'lumotlar quyida.")
 
     @staticmethod
     def _drop_dark_broll(work: Path, clips: list, parts: list[str]) -> None:
@@ -1034,7 +1099,24 @@ class Workflow:
         if links:
             fields["live_links"] = links
         self.reels.upsert(video_id, **fields)
+        if states and all(st.get("status") in ("sent", "missing") for st in states.values()):
+            self._forget_media(video_id, "video")
         return links
+
+    def _forget_media(self, video_id: int, what: str) -> None:
+        """Every post Buffer had to fetch this file for went out: the public copy is deleted again."""
+        if self.media_host is None:
+            return
+        try:
+            if what == "video":
+                render = self.store.render(self.store.video(video_id)["render_id"])
+                self.media_host.forget(Path(render["video_path"]))
+            else:
+                reel = self.reels.get(video_id) or {}
+                if reel.get("cover_path"):
+                    self.media_host.forget(Path(reel["cover_path"]))
+        except Exception as exc:                              # noqa: BLE001 - tried again on the next check
+            log.warning("public %s copy not deleted yet: %s", what, exc)
 
     def _refresh_after_live(self, video: dict, now: datetime) -> None:
         """After the Instagram post went live, the other platforms may still be waiting in Buffer's queue."""
@@ -1070,6 +1152,7 @@ class Workflow:
             return Result(False, "Bu story allaqachon belgilangan.")
         self.store.set_status(video_id, DONE)
         self.reels.upsert(video_id, step="done")
+        self._forget_media(video_id, "cover")                # the story is out: its cover link is not needed
         return Result(True, "🎉 Rahmat! Reel tugadi. Keyingi mavzu tadqiqoti vaqtida boshlanadi.")
 
     def tick(self) -> None:
@@ -1105,7 +1188,7 @@ class Workflow:
     def handlers(self):
         return {"research": self.job_research, "propose": self.job_propose, "regenerate": self.job_regenerate,
                 "rewrite": self.job_rewrite, "process_voice": self.job_process_voice,
-                "plan_from_voice": self.job_plan_from_voice, "reel_fix": self.job_reel_fix,
+                "plan_from_voice": self.job_plan_from_voice, "reel_fix": self.job_reel_fix, "package": self.job_package,
                 "reel_publish": self.job_reel_publish}
 
     def recover(self) -> list[str]:
@@ -1140,7 +1223,7 @@ class Workflow:
                 self.jobs.enqueue("process_voice", {"video_id": vid, "voice_id": video["voice_id"]},
                                   dedupe_key=f"process_voice:{video['voice_id']}")
                 done.append(f"video {vid}: voice processing resumed")
-            elif st == RENDERING and not mine & {"render", "revise_package"} and video["voice_id"]:
+            elif st == RENDERING and not mine & {"render", "reel_fix", "package", "revise_package"} and video["voice_id"]:
                 self._enqueue_render(vid, video["voice_id"])
                 done.append(f"video {vid}: render resumed")
             elif st == REVISING and not mine & {"regenerate", "rewrite"}:

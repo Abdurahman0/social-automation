@@ -19,7 +19,6 @@ from .lessons import Lessons, LessonsClaude
 from .outbox import Outbox
 from .platforms.dryrun import DryRunLog
 from .platforms.instagram import GraphInstagramClient
-from .platforms.tunnel import make_public_files
 from .platforms.youtube import YouTubeStats
 from .reel.align import RubaiSTT
 from .reel.broll import make_providers
@@ -101,9 +100,14 @@ def build_app(settings: Settings, *, claude=None, transcriber: Transcriber | Non
         reel_renderer = ReelRenderer(settings.root, places, settings.resolve(settings.video.music_dir),
                                      settings.reel.music_volume_db, settings.reel.remotion_concurrency)
     writer = ReelWriter(claude, settings.content.niche, settings.reel.language, settings.reel.words_per_second, lessons)
+    media_host = None
     if public_files is None and not settings.dry_run:
-        public_files = make_public_files(settings.root)   # Buffer fetches the reel's video from a temporary link
+        # Buffer fetches the video when the post goes out (hours or days later): a stable GitHub Pages link
+        from .reel.media_host import GitHubPagesHost
+        media_host = GitHubPagesHost(content.account, settings.data_dir / "media_host.json")
+        public_files = media_host.links
     workflow = Workflow(settings, store, jobs, outbox, kv, transcriber, budget, lessons, clock, buffer=buffer,
                         buffer_stats=buffer_stats, reel_writer=writer, places=places, reel_renderer=reel_renderer,
-                        broll_providers=broll_providers, public_files=public_files, content=content)
+                        broll_providers=broll_providers, public_files=public_files, content=content,
+                        media_host=media_host)
     return App(settings, db, store, jobs, kv, outbox, lessons, budget, claude, workflow, clock)

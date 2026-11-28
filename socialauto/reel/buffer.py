@@ -98,7 +98,8 @@ def queue_input(channel_id: str, text: str, video_url: str | None, metadata: dic
     inp: dict[str, Any] = {"channelId": channel_id, "text": text, "assets": _assets(video_url, None)}
     if metadata:
         inp["metadata"] = metadata
-    inp.update({"schedulingType": "automatic", "mode": "addToQueue", "saveToDraft": False})
+    # needsApproval is a required field of CreatePostInput (Boolean!): without it Buffer refuses every post
+    inp.update({"schedulingType": "automatic", "mode": "addToQueue", "saveToDraft": False, "needsApproval": False})
     return inp
 
 
@@ -110,6 +111,7 @@ def draft_input(channel_id: str, text: str, video_url: str | None, image_url: st
                            "mode": "addToQueue", "assets": _assets(video_url, image_url)}
     if metadata:
         inp["metadata"] = metadata
+    inp["needsApproval"] = False                    # required by CreatePostInput
     inp["saveToDraft"] = True                       # set last, so nothing above can ever override it
     return inp
 
@@ -268,7 +270,8 @@ def instagram_reel_meta() -> dict:
 
 
 def youtube_meta(title: str) -> dict:
-    return {"youtube": {"title": title[:100], "categoryId": "27", "privacy": "public", "madeForKids": False}}
+    return {"youtube": {"title": title[:100], "categoryId": "27", "privacy": "public", "madeForKids": False,
+                        "type": "short"}}
 
 
 def story_meta(link: str, text: str) -> dict:

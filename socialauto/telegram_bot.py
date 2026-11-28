@@ -42,7 +42,8 @@ log = logging.getLogger(__name__)
 MAX_CHUNK = 3900
 CAPTION_MAX = 1024
 SENT_KINDS = {"script_approval", "voice_request", "voice_reminder", "voice_check", "voice_unusable", "video_approval",
-              "owner_action", "limit", "topic_choice", "cover_request", "buffer_ready", "story_ready", "error", "aroll_choice"}
+              "owner_action", "limit", "topic_choice", "cover_request", "buffer_ready", "story_ready", "error", "aroll_part",
+              "video_details"}
 AWAIT_EDIT = "await_edit:{}"
 AWAIT_REJECT = "await_reject:{}"
 AWAIT_IDEA = "await_idea:{}"
@@ -53,9 +54,12 @@ VOICE_FIX_RE = re.compile(r"^vf:(\d+):(\d+)$")
 TOPIC_RE = re.compile(r"^t:(\d+|m):([0-9a-f]{10})$")
 STORY_RE = re.compile(r"^st:(\d+)$")
 ERROR_RE = re.compile(r"^er:([ro]):(\d+)$")                  # «Qayta urinish» / «Boshqa mavzu» under an error
-AROLL_RE = re.compile(r"^ar:([tdn]):(\d+):([0-9a-f]{10})$")    # tick a part / «Tayyor» / «Hammasi B-roll»
+AROLL_RE = re.compile(r"^ar:([abn]):(\d+):([0-9a-f]{10})$")    # one part: A-roll / B-roll / «Qolganlari B-roll»
 AROLL_SKIP_RE = re.compile(r"^ar:s:(\d+)$")                     # «Bu qismga B-roll qo'y» while a clip is asked
 VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".3gp")
+FIELD_RE = re.compile(r"^f:(yt|yd|ig|li|st):([0-9a-f]{10})$")   # change one post text of the final package
+FIELD_CODES = {"yt": "youtube_title", "yd": "youtube_description", "ig": "instagram", "li": "linkedin",
+               "st": "story_text"}
 NEW_AUTO = "nw:auto"
 PLATFORM_UZ = {"youtube": "YouTube", "instagram": "Instagram"}
 
@@ -64,9 +68,10 @@ HELP = """🎬 Social Automation — suv va oqova suv haqida reels
 Siz qiladigan ishlar (har biri bitta xabar va tugmalar bilan keladi):
 1) 🔎 Mavzuni tanlaysiz — bot tadqiqot qilib, 3–5 ta mavzu taklif qiladi.
 2) 📝 Ssenariyni tahrirlaysiz yoki tasdiqlaysiz (8 qism, o'zbekcha).
-3) 🎙 Matnni o'qib, ovozni yuborasiz. Bot ovozni 8 qismga bo'lib, qaysi qismlarga o'zingiz suratga olgan
-   videoni (A-roll) qo'yishni so'raydi — belgilaysiz va videolarni navbat bilan yuborasiz (qolganiga B-roll).
-4) 🎬 Videoni ko'rasiz: tuzatish (matn yoki ovozli xabar) yoki ✅ tasdiqlash.
+3) 🎙 Matnni o'qib, ovozni yuborasiz. Bot ovozni 8 qismga bo'lib, har bir qism uchun birma-bir so'raydi:
+   🎥 A-roll (o'zingiz suratga olgan video — shu zahoti yuborasiz) yoki 🎞 B-roll (bot topadi).
+4) 📦 Tayyor reelni hamma ma'lumoti bilan olasiz: video, sarlavha, Instagram / YouTube / LinkedIn matnlari,
+   story matni, heshteglar. ✅ tasdiqlash, ❌ rad etish, ✏️ istalgan matnni o'zgartirish yoki 🎬 videoni tuzatish.
 5) 🖼 Muqovani o'zingiz tayyorlab yuborasiz (bot muqova qilmaydi) → bot GitHub'ga saqlaydi va Buffer navbatiga qo'shadi.
    👉 Buffer uni o'z jadvali bo'yicha, navbatdagi bo'sh vaqtda o'zi joylaydi.
 6) 📱 Reel efirga chiqqach — story qoralamasi tayyor bo'ladi, uni o'zingiz joylaysiz.
@@ -185,21 +190,77 @@ def reel_script_message(script: dict, slot: str | None, dry_run: bool, wps: floa
 
 def reel_video_keyboard(token: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"v:a:{token}")],
-        [InlineKeyboardButton("✏️ Tuzatish (matn yoki ovoz)", callback_data=f"v:e:{token}"),
+        [InlineKeyboardButton("✅ Tasdiqlash (Buffer'ga)", callback_data=f"v:a:{token}")],
+        [InlineKeyboardButton("✏️ Matnlarni o'zgartirish", callback_data=f"v:d:{token}")],
+        [InlineKeyboardButton("🎬 Videoni tuzatish", callback_data=f"v:e:{token}"),
          InlineKeyboardButton("🔄 Yangi B-roll", callback_data=f"v:g:{token}")],
         [InlineKeyboardButton("❌ Rad etish", callback_data=f"v:r:{token}")],
     ])
 
 
+def field_keyboard(token: str) -> InlineKeyboardMarkup:
+    """Which post text to change (the owner then types the new text)."""
+    from .workflow import CAPTION_FIELDS
+    buttons = [InlineKeyboardButton(f"✏️ {CAPTION_FIELDS[field][0]}", callback_data=f"f:{code}:{token}")
+               for code, field in FIELD_CODES.items()]
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    rows.append([InlineKeyboardButton("🎬 Ekrandagi sarlavha / video", callback_data=f"v:e:{token}")])
+    rows.append([InlineKeyboardButton("⬅️ Orqaga", callback_data=f"v:b:{token}")])
+    return InlineKeyboardMarkup(rows)
+
+
 def reel_video_caption(title: str, version: int, duration: float, report: dict, dry_run: bool) -> str:
     checks = (report.get("before", {}).get("checks") or []) + (report.get("after", {}).get("checks") or [])
     ok = sum(1 for c in checks if c["ok"])
-    text = (f"🎬 <b>v{version} tayyor — ko'rib chiqing</b>" + (" · 🧪 sinov rejimi" if dry_run else "") +
+    text = (f"🎬 <b>v{version} tayyor</b>" + (" · 🧪 sinov rejimi" if dry_run else "") +
             f"\n\n<b>{e(title)}</b>\n⏱ {duration:.0f} soniya · ✅ tekshiruv: {ok}/{len(checks)}\n\n"
-            "Hammasi yaxshi bo'lsa — ✅ Tasdiqlash (keyin muqovani so'rayman). Tuzatish kerak bo'lsa — ✏️ ni bosib, "
-            "matn yoki ovozli xabar yuboring: keyingi versiya tayyorlanadi.")
+            "👇 Videoning hamma ma'lumotlari (sarlavha, tavsif, matnlar) va tugmalar keyingi xabarda.")
     return text[:CAPTION_MAX]
+
+
+def package_message(script: dict, render: dict, reel: dict, clips: list, dry_run: bool) -> str:
+    """The full package of a finished reel: everything that goes to Buffer, for one approve / reject / change."""
+    from .workflow import OWNER_PROVIDER
+    cap = reel.get("captions") or {}
+    rep_ = render.get("report") or {}
+    checks = (rep_.get("before", {}).get("checks") or []) + (rep_.get("after", {}).get("checks") or [])
+    ok = sum(1 for c in checks if c["ok"])
+    own = sum(1 for c in clips if c.provider == OWNER_PROVIDER)
+    tags = " ".join(f"#{t.lstrip('#')}" for t in script.get("hashtags", []))
+    sources = ", ".join(s_["name"] for s_ in script.get("sources", []))
+    lines = ["📦 <b>Reel tayyor — hammasini tekshiring</b>" + (" · 🧪 sinov rejimi" if dry_run else ""),
+             "",
+             f"🎬 <b>Ekrandagi sarlavha:</b> {e(script['title'])}",
+             f"⏱ <b>Davomiyligi:</b> {render.get('duration') or 0:.0f} soniya · versiya v{rep_.get('version', 1)}"
+             + (f" · ✅ tekshiruv {ok}/{len(checks)}" if checks else ""),
+             f"🎞 <b>Qismlar:</b> {len(script['parts'])} ta — " + (f"{own} tasida sizning videongiz (A-roll), "
+                                                                   f"{len(script['parts']) - own} tasida B-roll"
+                                                                   if own else "hammasida B-roll"),
+             f"💡 <b>Asosiy fakt:</b> {e(script.get('key_fact', ''))}"]
+    if tags:
+        lines.append(f"#️⃣ <b>Heshteglar:</b> {e(tags)}")
+    if sources:
+        lines.append(f"📚 <b>Manbalar:</b> {e(sources)}")
+    lines += ["",
+              f"▶️ <b>YouTube sarlavhasi:</b>\n{e(cap.get('youtube_title', ''))}",
+              "",
+              f"▶️ <b>YouTube tavsifi:</b>\n{e(cap.get('youtube_description', ''))}",
+              "",
+              f"📸 <b>Instagram (Reels) matni:</b>\n{e(cap.get('instagram', ''))}",
+              "",
+              f"💼 <b>LinkedIn matni:</b>\n{e(cap.get('linkedin', ''))}",
+              "",
+              f"📱 <b>Story matni:</b> {e(cap.get('story_text', ''))}",
+              "",
+              "📅 <b>Qayerga:</b> Instagram (Reels), YouTube (Shorts), LinkedIn — Buffer navbatidagi birinchi bo'sh "
+              "vaqtda (vaqtni Buffer o'zi tanlaydi).",
+              "",
+              "✅ Tasdiqlasangiz — muqovani so'rayman, muqova kelishi bilan reel shu matnlar bilan Buffer navbatiga "
+              "qo'shiladi. ✏️ — istalgan matnni o'zgartirish, 🎬 — videoni tuzatish, ❌ — rad etish."]
+    if dry_run:
+        lines.append("🧪 <b>Sinov rejimi yoqiq:</b> Buffer'ga haqiqatda yuborilmaydi, faqat yozib qo'yiladi. "
+                     "O'chirish: <code>python -m socialauto dry-run off</code>, keyin botni qayta ishga tushiring.")
+    return "\n".join(lines)
 
 
 def buffer_message(title: str, reel: dict, dry_run: bool) -> str:
@@ -253,30 +314,27 @@ def voice_request_message(script: dict, cfg, tips_from_lessons: list[str], remin
     return "\n".join(lines)
 
 
-def aroll_message(title: str, script: dict, state: dict) -> str:
-    """After the voice is split into the 8 parts: which parts get the owner's own video (A-roll)?"""
-    texts = {pt["part"]: pt.get("text", "") for pt in script["parts"]}
-    lines = [f"🎬 <b>O'z videongiz (A-roll)</b>: «{e(title)}»",
-             "Ovozingiz 8 qismga bo'lindi. Qaysi qismlarga o'zingiz suratga olgan videoni qo'ymoqchisiz? "
-             "Belgilanmagan qismlarga bot litsenziyali B-roll qo'yadi.", ""]
-    for k, sp in enumerate(state["spans"]):
-        words = texts.get(sp["part"], "").split()
-        snippet = " ".join(words[:12]) + ("…" if len(words) > 12 else "")
-        lines.append(f"<b>{k + 1}. {e(rs.PART_UZ.get(sp['part'], sp['part']))}</b> · {sp['start']:.1f}–{sp['end']:.1f} s "
-                     f"({sp['end'] - sp['start']:.1f} s)\n<i>{e(snippet)}</i>")
-    lines += ["", "Qismlarni belgilang, keyin «▶️ Tayyor» ni bosing — bot har bir qism uchun videoni navbat bilan "
-                  "so'raydi."]
+def aroll_part_message(title: str, script: dict, state: dict, index: int) -> str:
+    """One part at a time: A-roll (the owner's own video) or B-roll (stock footage)?"""
+    sp = state["spans"][index]
+    text = next((pt.get("text", "") for pt in script["parts"] if pt["part"] == sp["part"]), "")
+    lines = []
+    if index == 0:
+        lines += [f"🎬 <b>A-roll yoki B-roll?</b> «{e(title)}»",
+                  f"Ovozingiz {len(state['spans'])} qismga bo'lindi. Har bir qism uchun birma-bir so'rayman: "
+                  "🎥 A-roll — o'zingiz suratga olgan video (shu zahoti yuborasiz), 🎞 B-roll — bot litsenziyali video "
+                  "topadi.", ""]
+    lines += [f"<b>{index + 1}/{len(state['spans'])} · {e(rs.PART_UZ.get(sp['part'], sp['part']))}</b> · "
+              f"{sp['start']:.1f}–{sp['end']:.1f} s ({sp['end'] - sp['start']:.1f} s)",
+              f"<i>«{e(text)}»</i>", "", "Bu qismga nima qo'yamiz?"]
     return "\n".join(lines)
 
 
-def aroll_keyboard(state: dict, token: str) -> InlineKeyboardMarkup:
-    chosen = set(state.get("chosen") or [])
-    buttons = [InlineKeyboardButton(f"{'✅' if sp['part'] in chosen else '⬜'} {k + 1}. "
-                                    f"{rs.PART_UZ.get(sp['part'], sp['part'])}", callback_data=f"ar:t:{k}:{token}")
-               for k, sp in enumerate(state["spans"])]
-    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
-    rows.append([InlineKeyboardButton(f"▶️ Tayyor ({len(chosen)} ta qism)", callback_data=f"ar:d:0:{token}")])
-    rows.append([InlineKeyboardButton("🎞 Hammasi B-roll", callback_data=f"ar:n:0:{token}")])
+def aroll_part_keyboard(index: int, token: str, last: bool) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton("🎥 A-roll (o'z videom)", callback_data=f"ar:a:{index}:{token}"),
+             InlineKeyboardButton("🎞 B-roll", callback_data=f"ar:b:{index}:{token}")]]
+    if not last:
+        rows.append([InlineKeyboardButton("🎞 Qolganlari hammasi B-roll", callback_data=f"ar:n:{index}:{token}")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -583,16 +641,21 @@ class TelegramBot:
                         + (f"«{e(video['title'])}» uchun " if not p.get("new_video") else "")
                         + "iltimos, qayta yozib yuboring.")
             await self.bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
-        elif kind == "aroll_choice":
+        elif kind == "aroll_choice":                     # the old multi-tick question (before the one-by-one one)
+            return
+        elif kind == "aroll_part":
             approval = store.approval(p["approval"])
             state = self.app.workflow.aroll_state(p["video_id"])
-            if not approval or approval["status"] != "pending" or not state:
-                return
+            if not approval or approval["status"] != "pending" or not state or state.get("index") != p["index"] \
+                    or state.get("waiting"):
+                return                                   # already answered
             video = store.video(p["video_id"])
-            await self._send_long(chat_id, aroll_message(video["title"], store.script(video["id"]), state),
-                                  aroll_keyboard(state, p["approval"]))
+            await self._send_long(chat_id, aroll_part_message(video["title"], store.script(video["id"]), state, p["index"]),
+                                  aroll_part_keyboard(p["index"], p["approval"], p["index"] == len(state["spans"]) - 1))
         elif kind == "video_approval":
             await self._send_video_approval(chat_id, p)
+        elif kind == "video_details":                    # a post text changed: the package again (no new video)
+            await self._send_package(chat_id, p)
         elif kind == "error":                            # Task 10: plain-Uzbek error, maybe with «Qayta urinish»
             await self.bot.send_message(chat_id, p.get("text", ""), reply_markup=error_keyboard(p.get("buttons")))
         else:                                            # owner_action, limit
@@ -610,9 +673,26 @@ class TelegramBot:
             await self.bot.send_video(chat_id, f, caption=reel_video_caption(render["title"], rep.get("version", 1),
                                                                              render["duration"] or 0, rep,
                                                                              bool(approval["dry_run"])),
-                                      parse_mode=ParseMode.HTML, reply_markup=reel_video_keyboard(p["approval"]),
+                                      parse_mode=ParseMode.HTML,
                                       supports_streaming=True, width=1080, height=1920,
                                       duration=round(render["duration"] or 0), read_timeout=300, write_timeout=300)
+        await self._send_package(chat_id, p)
+
+    def package_text(self, video_id: int, token: str) -> str | None:
+        store, wf = self.app.store, self.app.workflow
+        approval = store.approval(token)
+        if not approval or approval["status"] != "pending":
+            return None
+        render = store.render(approval["ref_version"])
+        reel = wf.reels.get(video_id) or {}
+        from .reel import broll as broll_mod
+        clips = broll_mod.load_sources(wf.places.work(reel["base"])) if reel.get("base") else []
+        return package_message(store.script(video_id), render, reel, clips, bool(approval["dry_run"]))
+
+    async def _send_package(self, chat_id: int, p: dict) -> None:
+        text = self.package_text(p["video_id"], p["approval"])
+        if text:
+            await self._send_long(chat_id, text, reel_video_keyboard(p["approval"]))
 
     def _telegram_file(self, render: dict) -> Path:
         path = Path(render["video_path"])
@@ -629,38 +709,57 @@ class TelegramBot:
     @authorized
     async def on_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
-        m = AROLL_RE.match(query.data or "")
-        if m and m.group(1) == "t":                     # ticking a part: the same message, new buttons
-            res = await asyncio.to_thread(self.app.workflow.aroll_toggle, m.group(3), int(m.group(2)))
-            if not res.ok:
-                await query.answer(res.message[:190], show_alert=True)
+        markup = self.package_markup(query.data or "")
+        if markup is not None:                          # «Matnlarni o'zgartirish» / «Orqaga»: same message, new buttons
+            if markup is False:
+                await query.answer("Bu tugma endi ishlamaydi.", show_alert=True)
                 return
-            await query.answer(res.message[:190])
-            approval = self.app.store.approval(m.group(3))
-            state = self.app.workflow.aroll_state(approval["video_id"]) if approval else None
-            if state:
-                try:
-                    await query.edit_message_reply_markup(reply_markup=aroll_keyboard(state, m.group(3)))
-                except TelegramError:
-                    pass
+            await query.answer()
+            try:
+                await query.edit_message_reply_markup(reply_markup=markup)
+            except TelegramError:
+                pass
             return
         ok, reply = await self.handle_button(update.effective_user.id, query.data or "")
         if not ok:
             await query.answer(reply[:190], show_alert=True)
             return
         await query.answer()
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except TelegramError:
-            pass
+        if not FIELD_RE.match(query.data or ""):        # the package keeps its buttons while a text is typed
+            try:
+                await query.edit_message_reply_markup(reply_markup=None)
+            except TelegramError:
+                pass
         if reply:
             markup = self._aroll_markup() if (query.data or "").startswith("ar:") else None
             await query.message.reply_text(reply, reply_markup=markup)
         await self.deliver_outbox()
 
+    def package_markup(self, data: str):
+        """The package's keyboards switch in place: None = not such a button, False = the package is outdated."""
+        m = BUTTON_RE.match(data)
+        if not m or m.group(1) != "v" or m.group(2) not in "db":
+            return None
+        approval = self.app.store.approval(m.group(3))
+        if not approval or approval["status"] != "pending":
+            return False
+        return field_keyboard(m.group(3)) if m.group(2) == "d" else reel_video_keyboard(m.group(3))
+
     async def handle_button(self, user_id: int, data: str) -> tuple[bool, str]:
         """(ok, reply text). Used by on_button and by tests."""
         wf, kv = self.app.workflow, self.app.kv
+        m = FIELD_RE.match(data)
+        if m:
+            from .workflow import CAPTION_FIELDS
+            approval = self.app.store.approval(m.group(2))
+            if not approval or approval["status"] != "pending":
+                return False, "Bu tugma endi ishlamaydi."
+            field = FIELD_CODES[m.group(1)]
+            kv.set(AWAIT_EDIT.format(user_id), {"stage": "field", "field": field, "token": m.group(2)})
+            name, limit = CAPTION_FIELDS[field]
+            now = ((wf.reels.get(approval["video_id"]) or {}).get("captions") or {}).get(field, "")
+            return True, (f"✏️ Yangi «{name}» ni bitta xabarda yozing (eng ko'pi {limit} belgi). Hozirgisi:\n\n{now}"
+                          "\n\n(/cancel — bekor qilish)")
         m = BUTTON_RE.match(data)
         if m:
             group, action, token = m.groups()
@@ -679,6 +778,8 @@ class TelegramBot:
                     return True, res.message + "\n💬 Nima yoqmadi? Bir og'iz yozsangiz, bot eslab qoladi (ixtiyoriy)."
                 return res.ok, res.message
             if group == "v":
+                if action in "db":                       # keyboard switches (on_button changes them in place)
+                    return self.package_markup(data) is not False, ""
                 if action == "e":
                     approval = self.app.store.approval(token)
                     if not approval or approval["status"] != "pending":
@@ -697,10 +798,10 @@ class TelegramBot:
         m = AROLL_RE.match(data)
         if m:
             action, index, token = m.groups()
-            if action == "t":
-                res = await asyncio.to_thread(wf.aroll_toggle, token, int(index))
+            if action == "n":
+                res = await asyncio.to_thread(wf.aroll_rest_broll, token)
             else:
-                res = await asyncio.to_thread(wf.aroll_decision, token, action == "d")
+                res = await asyncio.to_thread(wf.aroll_choice, token, int(index), action == "a")
             return res.ok, res.message
         m = AROLL_SKIP_RE.match(data)
         if m:
@@ -862,6 +963,11 @@ class TelegramBot:
         edit = kv.get(AWAIT_EDIT.format(user_id))
         if edit:
             kv.delete(AWAIT_EDIT.format(user_id))
+            if edit["stage"] == "field":
+                res = await asyncio.to_thread(wf.field_edit, edit["token"], edit["field"], text)
+                if not res.ok:
+                    kv.set(AWAIT_EDIT.format(user_id), edit)          # e.g. too long: the owner sends it again
+                return res.message if res.ok else f"⚠️ {res.message}"
             fn = wf.script_decision if edit["stage"] == "script" else wf.video_decision
             res = await asyncio.to_thread(fn, edit["token"], "edit", text)
             return res.message if res.ok else f"⚠️ {res.message}"
